@@ -3,22 +3,24 @@ from core.storage.mysql import get_session
 from core.storage.notes_models import Note
 
 def save_note(text: str) -> str:
-    # Remove command keywords
     lowered = text.lower()
+
     for phrase in ["save note", "write note", "take note"]:
-        if lowered.startswith(phrase):
-            content = text[len(phrase):].strip()
+        if phrase in lowered:
+            content = lowered.split(phrase, 1)[1].strip()
             break
     else:
-        content = text.strip()
+        return "I did not catch what to save."
 
-    if not content:
-        return "What should I save in the note?"
+    # very short or garbage content → ask again
+    if len(content.split()) < 3:
+        return "Please say the note content again."
 
     with get_session() as session:
         session.add(Note(content=content))
 
-    return "Note saved."
+    return f"I saved this note: {content}"
+
 
 
 def read_notes(limit: int = 5) -> str:

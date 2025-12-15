@@ -15,3 +15,7 @@ venv/
 
 # Logs
 *.log
+
+models/
+
+

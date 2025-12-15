@@ -3,6 +3,7 @@ from core.storage.mysql import verify_connection
 from core.input.text_input import read_text
 from core.nlp.tokenizer import tokenize
 from core.nlp.intent import Intent
+from core.nlp.normalizer import normalize
 from core.skills.basic import handle
 from core.context.short_term import ShortTermContext
 from core.context.long_term import save_message
@@ -27,6 +28,7 @@ class Assistant:
 
         while self.running:
             user_text = read_text()
+            user_text = normalize(user_text) 
             tokens = tokenize(user_text)
 
             # Follow-up handling
