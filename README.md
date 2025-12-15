@@ -29,3 +29,17 @@ The core intelligence is **language-agnostic** and **offline-capable**.
 - Extensible skill routing
 
 ---
+
+### Current Features (Day 6)
+- Offline speech-to-text (Vosk)
+- Offline-first architecture
+- Intent-based command handling
+- Persistent memory using MySQL
+- Voice-controlled notes
+- Accent-tolerant normalization
+- Linux-ready (Laptop & Raspberry Pi)
+
+> Models are not included in the repository.
+> Download instructions will be provided.
+
+---
