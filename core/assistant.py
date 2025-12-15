@@ -5,6 +5,7 @@ from core.nlp.tokenizer import tokenize
 from core.nlp.intent import Intent
 from core.skills.basic import handle
 from core.context.short_term import ShortTermContext
+from core.context.long_term import save_message
 from core.intelligence.intent_scorer import score_intents, pick_best_intent
 
 class Assistant:
@@ -22,13 +23,13 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 3 started. Intent scoring + context enabled.")
+        logger.info("Day 4 started. Long-term memory enabled.")
 
         while self.running:
-            text = read_text()
-            tokens = tokenize(text)
+            user_text = read_text()
+            tokens = tokenize(user_text)
 
-            # Simple follow-up handling
+            # Follow-up handling
             if tokens in (["again"], ["repeat"]):
                 if self.ctx.last_intent:
                     intent = Intent(self.ctx.last_intent)
@@ -38,12 +39,19 @@ class Assistant:
                 scores = score_intents(tokens)
                 intent = pick_best_intent(scores)
 
+            # Save user message
+            save_message("user", user_text, intent.value)
+
             response = handle(intent)
             print(f"Rudra > {response}")
 
+            # Save assistant response
+            save_message("assistant", response, intent.value)
+
+            # Update short-term context
             self.ctx.update(intent.value)
 
             if intent == Intent.EXIT:
                 self.running = False
 
-        logger.info("Day 3 complete.")
+        logger.info("Day 4 complete.")
