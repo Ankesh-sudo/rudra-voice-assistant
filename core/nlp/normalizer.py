@@ -1,12 +1,18 @@
-COMMON_FIXES = {
-    "read not": "read note",
-    "save not": "save note",
-    "steve note": "save note",
-    "that": "",
-}
+import re
 
-def normalize(text: str) -> str:
-    t = text.lower()
-    for wrong, right in COMMON_FIXES.items():
-        t = t.replace(wrong, right)
-    return t.strip()
+FILLER_WORDS = [
+    "um", "uh", "hmm", "please", "hey",
+    "hello", "hi", "okay", "ok", "ya", "yeah"
+]
+
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", "", text)
+
+    words = text.split()
+    words = [w for w in words if w not in FILLER_WORDS]
+
+    return " ".join(words).strip()
