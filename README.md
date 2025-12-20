@@ -1,184 +1,177 @@
-Rudra — Intelligent Voice Assistant
+# Rudra — Intelligent Voice Assistant 🧠🎙️
 
-Rudra is a modular, Python-based intelligent voice assistant designed to run reliably on Linux systems.
-The project is built step-by-step with a strong focus on architecture, stability, and extensibility, rather than quick features.
+Rudra is a **modular, Python-based intelligent voice assistant** designed to run reliably on **Linux systems**.  
+The project is built **step-by-step** with a strong emphasis on **architecture, stability, and extensibility**, rather than quick or fragile features.
 
-Current implementation uses Google Speech Recognition for accurate voice input, with a long-term goal of becoming an offline-first, algorithm-driven assistant.
+The long-term vision is to evolve Rudra into an **offline-first, algorithm-driven AI assistant**, capable of system control, memory, and natural interaction across devices.
 
-📌 Project Status
+---
 
-Current stable milestone: ✅ Day 9 (Stable)
+## 🔖 Project Status
 
-Day 9 focuses entirely on input intelligence, stability, and conversational reliability.
+**Current Stable Milestone:** ✅ **Day 9 — Input Intelligence & Conversation Stability**
 
-✔ Robust input validation
-✔ Confidence-based intent gating
-✔ Active listening with silence handling
-✔ Repeat-safe retry logic
-✔ Stable conversation loop
+Day 9 focuses entirely on making Rudra **reliable, calm, and frustration-free** during conversations.
 
-Action-based system control begins from Day 10.
+✔ Robust input validation  
+✔ Confidence-based intent gating  
+✔ Active listening with silence handling  
+✔ Repeat-safe retry logic  
+✔ Stable conversation loop  
 
-🚀 Features (Implemented)
-✅ Core Assistant
+> 🚧 **Action-based system control begins from Day 10**
 
-Intent-based command processing
+---
 
-Modular NLP pipeline
+## 🚀 Features (Implemented)
 
-Short-term & long-term memory
+### ✅ Core Assistant
+- Intent-based command processing
+- Modular NLP pipeline
+- Short-term & long-term conversational memory
+- MySQL-backed persistent storage
+- Clean separation of concerns
+- Predictable and debuggable execution flow
 
-MySQL-backed persistent storage
+---
 
-Clean separation of concerns
+### ✅ Input System (Day 8)
+- Voice input using **Google Speech Recognition**
+- Text input fallback
+- **Push-to-talk** (press ENTER to speak)
+- Configurable input mode (voice / text)
+- Controlled listening (no always-on microphone)
 
-✅ Input System (Day 8)
+---
 
-Voice input using Google Speech Recognition
+### ✅ Input Intelligence (Day 9)
+- Input normalization & validation gate
+- Minimum-length and word-count filtering
+- Repeat suppression (only for previously accepted inputs)
+- Confidence refinement after intent scoring
+- Safe handling of unknown intents
+- Clear retry prompts (no infinite loops)
 
-Text input fallback
+---
 
-Push-to-talk (press ENTER to speak)
+### ✅ Active Listening & Silence Handling (Day 9)
+- Listening state machine (`IDLE → ACTIVE → WAITING`)
+- Automatic silence detection
+- Context-aware prompts:
+  - “I’m listening.”
+  - “Going to sleep.”
+- No accidental intent execution during silence
+- Natural conversational pacing
 
-Configurable input mode (voice / text)
+---
 
-Controlled listening (no always-on mic)
+### ✅ Stability & Logging
+- Structured logging using **Loguru**
+- Detailed debug traces for:
+  - Input validation
+  - Intent scoring
+  - Confidence decisions
+- Graceful handling of speech and microphone errors
+- Environment-variable based configuration
+- Secure `.env` usage (never committed)
 
-✅ Input Intelligence (Day 9)
+---
 
-Input normalization & validation
-
-Rejection of weak, noisy, or partial input
-
-Confidence scoring & refinement
-
-Safe retry handling (no accidental blocking)
-
-Explicit handling of unknown intents
-
-✅ Active Listening (Day 9)
-
-Listening states: idle, active, waiting
-
-Silence-aware behavior
-
-Automatic sleep on repeated silence
-
-Natural conversation flow (no mic lock)
-
-✅ Stability & Logging
-
-Structured logging with Loguru
-
-Graceful handling of speech errors
-
-Environment-variable based configuration
-
-Safe .env usage (never committed)
-
-🧠 Architecture Overview
-
-Rudra follows a layered, deterministic pipeline:
-
-Input
- ↓
-Normalization & Validation
- ↓
-Tokenization
- ↓
-Intent Scoring
- ↓
-Confidence Refinement
- ↓
-Skill Execution
- ↓
-Memory Update
-
-
-Each layer is independent, testable, and replaceable.
-
-🗂️ Project Structure
+## 🧠 Project Architecture
 core/
-├── assistant.py            # Main assistant loop
-├── main.py                 # Entry point
-├── config.py               # Input configuration
-├── input_controller.py     # Centralized input handling
+├── main.py # Entry point
+├── assistant.py # Main assistant loop (state-driven)
+├── config.py # Input & environment configuration
+├── input_controller.py # Centralized input handling
 │
 ├── input/
-│ └── input_validator.py    # Input validation & retry logic
+│ └── input_validator.py # Input intelligence & repeat control
 │
 ├── speech/
-│ └── google_engine.py      # Google Speech Recognition
+│ └── google_engine.py # Google Speech Recognition engine
 │
 ├── nlp/
-│ ├── tokenizer.py
-│ ├── normalizer.py
-│ └── intent.py
+│ ├── normalizer.py # Text normalization
+│ ├── tokenizer.py # Tokenization
+│ └── intent.py # Intent definitions
 │
 ├── intelligence/
-│ ├── intent_scorer.py
+│ ├── intent_scorer.py # Rule-based intent scoring
 │ └── confidence_refiner.py
 │
 ├── skills/
-│ └── basic.py
+│ └── basic.py # Skill execution layer
 │
 ├── context/
-│ ├── short_term.py
-│ └── long_term.py
+│ ├── short_term.py # Session memory
+│ └── long_term.py # Persistent memory
 │
 ├── storage/
-│ ├── mysql.py
-│ └── models.py
+│ ├── mysql.py # Database connection
+│ └── models.py # DB models
 
-▶️ How to Run
-Requirements
 
-Python 3.10+
+---
 
-MySQL (running locally)
+## 🛠️ Tech Stack
 
-Linux OS
+- **Language:** Python 3.10+
+- **Speech Engine:** Google Speech Recognition
+- **Database:** MySQL
+- **Logging:** Loguru
+- **OS Target:** Linux (Ubuntu tested)
 
-Working microphone
+---
 
-Run Command
+## ▶️ Running the Assistant
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run Rudra
 python3 -m core.main
 
-🛠️ Configuration
 
-Sensitive values are stored in .env
+---
+Usage:
 
-.env is never committed
+Press ENTER → speak
 
-MySQL credentials and speech settings are configurable
+Say commands naturally
 
-🧭 Roadmap
-Upcoming
+Silence is handled automatically
 
-Day 10 — Action-based intents (system commands)
+Say exit rudra to quit
 
-Day 11 — Contextual multi-step commands
+🧭 Roadmap (High Level)
+Day 10–14: System actions (apps, files, OS control)
 
-Day 12+ — Memory intelligence improvements
+Day 15–25: Advanced skills & workflows
 
-Long-Term Vision
+Day 26–40: Memory intelligence & personalization
 
-Offline-first intelligence
+Day 41–60: Offline intent engine & algorithms
 
-Algorithmic & ML-based intent engine
+Day 61–70: Multi-device sync & Raspberry Pi build
 
-Multi-device sync
+📌 Philosophy
+Rudra is not built to demo quickly —
+it is built to last, scale, and evolve.
 
-Android & Raspberry Pi support
+Every feature must be:
 
-Alexa/Siri-class assistant behavior
+Predictable
 
-🏷️ Milestones
+Debuggable
 
-day-8-stable — Input system & voice pipeline
+Extendable
 
-day-9-stable — Input intelligence & active listening
+Safe to modify later
 
-📄 License
+📜 License
+This project is currently for learning, research, and portfolio purposes.
+License will be finalized once the core system stabilizes.
 
-This project is under active development and intended for learning, research, and portfolio use.
+Author: Ankesh
+Project: Rudra — Intelligent Voice Assistant
