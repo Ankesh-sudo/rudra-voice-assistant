@@ -8,6 +8,7 @@ from core.skills.basic import handle
 from core.context.short_term import ShortTermContext
 from core.context.long_term import save_message
 from core.intelligence.intent_scorer import score_intents, pick_best_intent
+from core.intelligence.confidence_refiner import refine_confidence
 
 
 class Assistant:
@@ -29,7 +30,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 9.1 started. Input validation enabled.")
+        logger.info("Day 9.2 started. Confidence refinement enabled.")
 
         while self.running:
             raw_text = self.input.read()
@@ -67,6 +68,13 @@ class Assistant:
             else:
                 scores = score_intents(tokens)
                 intent, confidence = pick_best_intent(scores, tokens)
+                confidence = refine_confidence(
+                    confidence,
+                    tokens,
+                    intent.value,
+                    self.ctx.last_intent
+                )
+
 
             logger.debug(
                 "Tokens={} | Scores={} | Intent={} | Confidence={:.2f}",
