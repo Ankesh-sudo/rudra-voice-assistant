@@ -2,7 +2,7 @@ import re
 
 FILLER_WORDS = [
     "um", "uh", "hmm", "please", "hey",
-    "hello", "hi", "okay", "ok", "ya", "yeah"
+     "okay", "ok", "ya", "yeah"
 ]
 
 def normalize_text(text: str) -> str:

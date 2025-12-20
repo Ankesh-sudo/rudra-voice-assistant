@@ -1,10 +1,9 @@
 from loguru import logger
-from core.nlp.quality_gate import is_input_valid
+from core.input.input_validator import InputValidator
 from core.storage.mysql import verify_connection
 from core.input_controller import InputController
 from core.nlp.tokenizer import tokenize
 from core.nlp.intent import Intent
-from core.nlp.normalizer import normalize_text
 from core.skills.basic import handle
 from core.context.short_term import ShortTermContext
 from core.context.long_term import save_message
@@ -18,6 +17,9 @@ class Assistant:
         self.running = True
         self.ctx = ShortTermContext()
 
+        # Day 9.1 – Input intelligence gate
+        self.input_validator = InputValidator()
+
     def run(self):
         logger.info("Assistant initialized: {}", self.name)
 
@@ -27,25 +29,29 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 8 started. Input control enabled.")
+        logger.info("Day 9.1 started. Input validation enabled.")
 
         while self.running:
             raw_text = self.input.read()
             if not raw_text:
                 continue
 
-            normalized = normalize_text(raw_text)
+            # -------- INPUT VALIDATION GATE --------
+            validation = self.input_validator.validate(raw_text)
 
-            # QUALITY GATE
-            if not is_input_valid(normalized):
-                logger.debug(
-                    "Rejected input | raw='{}' | normalized='{}' | reason=quality_gate",
-                    raw_text, normalized
-                )
-                print("Rudra > I didn't catch that clearly.")
+            logger.debug("[INPUT] raw='{}'", raw_text)
+            logger.debug("[INPUT] clean='{}'", validation.get("clean_text"))
+            logger.debug("[VALIDATION] {}", validation)
+
+            if not validation["valid"]:
+                print("Rudra > I didn’t understand. Please repeat.")
                 continue
+            # --------------------------------------
 
-            tokens = tokenize(normalized)
+            clean_text = validation["clean_text"]
+
+            # Tokenization
+            tokens = tokenize(clean_text)
 
             scores = {}
             confidence = 0.0
@@ -67,22 +73,26 @@ class Assistant:
                 tokens, scores, intent.value, confidence
             )
 
-            # CONFIDENCE GATE (STRICT)
+            # CONFIDENCE GATE (unchanged from Day 8)
             if confidence < 0.60:
                 logger.debug(
-                    "Rejected input | tokens={} | intent={} | confidence={:.2f}",
+                    "Rejected by confidence gate | tokens={} | intent={} | confidence={:.2f}",
                     tokens, intent.value, confidence
                 )
                 print("Rudra > Please say that again.")
                 continue
 
-            save_message("user", normalized, intent.value)
+            # Save user message
+            save_message("user", clean_text, intent.value)
 
-            response = handle(intent, normalized)
+            # Execute skill
+            response = handle(intent, clean_text)
             print(f"Rudra > {response}")
 
+            # Save assistant message
             save_message("assistant", response, intent.value)
 
+            # Update short-term context
             self.ctx.update(intent.value)
 
             if intent == Intent.EXIT:
