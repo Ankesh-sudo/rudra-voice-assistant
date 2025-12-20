@@ -1,4 +1,5 @@
 from loguru import logger
+
 from core.input.input_validator import InputValidator
 from core.storage.mysql import verify_connection
 from core.input_controller import InputController
@@ -11,6 +12,12 @@ from core.intelligence.intent_scorer import score_intents, pick_best_intent
 from core.intelligence.confidence_refiner import refine_confidence
 
 
+# Day 9.3 – Listening states
+IDLE = "idle"
+ACTIVE = "active"
+WAITING = "waiting"
+
+
 class Assistant:
     def __init__(self):
         self.input = InputController()
@@ -21,6 +28,10 @@ class Assistant:
         # Day 9.1 – Input intelligence gate
         self.input_validator = InputValidator()
 
+        # Day 9.3 – Active listening state
+        self.state = IDLE
+        self.silence_count = 0
+
     def run(self):
         logger.info("Assistant initialized: {}", self.name)
 
@@ -30,12 +41,33 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 9.2 started. Confidence refinement enabled.")
+        logger.info("Day 9.3 started. Active listening enabled.")
 
         while self.running:
             raw_text = self.input.read()
+
+            # -------- SILENCE HANDLING (Day 9.3) --------
             if not raw_text:
+                if self.state in (ACTIVE, WAITING):
+                    self.silence_count += 1
+
+                    if self.silence_count == 1:
+                        print("Rudra > I'm listening.")
+                        self.state = WAITING
+                        continue
+
+                    if self.silence_count >= 2:
+                        print("Rudra > Going to sleep.")
+                        self.state = IDLE
+                        self.silence_count = 0
+                        continue
+
                 continue
+            # --------------------------------------------
+
+            # Reset silence on speech
+            self.silence_count = 0
+            self.state = ACTIVE
 
             # -------- INPUT VALIDATION GATE --------
             validation = self.input_validator.validate(raw_text)
@@ -68,6 +100,8 @@ class Assistant:
             else:
                 scores = score_intents(tokens)
                 intent, confidence = pick_best_intent(scores, tokens)
+
+                # Day 9.2 – Confidence refinement
                 confidence = refine_confidence(
                     confidence,
                     tokens,
@@ -75,13 +109,14 @@ class Assistant:
                     self.ctx.last_intent
                 )
 
-
             logger.debug(
                 "Tokens={} | Scores={} | Intent={} | Confidence={:.2f}",
                 tokens, scores, intent.value, confidence
             )
-
-            # CONFIDENCE GATE (unchanged from Day 8)
+            if intent == Intent.UNKNOWN:
+                print("Rudra > I don’t know how to do that yet.")
+                continue
+            # CONFIDENCE GATE
             if confidence < 0.60:
                 logger.debug(
                     "Rejected by confidence gate | tokens={} | intent={} | confidence={:.2f}",
