@@ -6,6 +6,9 @@ class Intent(Enum):
     EXIT = "exit"
     NOTE_CREATE = "note_create"
     NOTE_READ = "note_read"
+    OPEN_BROWSER = "open_browser"
+    OPEN_TERMINAL = "open_terminal"
+    OPEN_FILE_MANAGER = "open_file_manager"
     UNKNOWN = "unknown"
 
 def detect_intent(tokens: list[str]) -> Intent:

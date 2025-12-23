@@ -119,7 +119,7 @@ class Assistant:
                 print("Rudra > I don’t know how to do that yet.")
                 continue
             # CONFIDENCE GATE
-            if confidence < 0.60:
+            if intent != Intent.EXIT and confidence < 0.60:
                 logger.debug(
                     "Rejected by confidence gate | tokens={} | intent={} | confidence={:.2f}",
                     tokens, intent.value, confidence
