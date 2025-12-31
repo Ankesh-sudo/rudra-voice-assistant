@@ -7,8 +7,13 @@ class Intent(Enum):
     NOTE_CREATE = "note_create"
     NOTE_READ = "note_read"
     OPEN_BROWSER = "open_browser"
-    OPEN_TERMINAL = "open_terminal"
+    OPEN_TERMINAL = "open_terminal" 
     OPEN_FILE_MANAGER = "open_file_manager"
+    OPEN_FILE = "open_file"
+    SEARCH_WEB = "search_web"
+    PLAY_MEDIA = "play_media"
+    CONTROL_VOLUME = "control_volume"
+    LIST_FILES = "list_files"
     UNKNOWN = "unknown"
 
 
