@@ -38,9 +38,7 @@ class Assistant:
         # Day 12 – Action executor
         self.action_executor = ActionExecutor()
 
-        # =================================================
-        # Day 13.3 — minimal follow-up hint (SAFE)
-        # =================================================
+        # Day 13.3 – follow-up hint (kept, but safe)
         self.expecting_followup = False
 
     def run(self):
@@ -52,7 +50,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 13.3 started. Follow-up hint enabled.")
+        logger.info("Day 14.1 started — UNKNOWN intent execution blocked")
 
         while self.running:
             raw_text = self.input.read()
@@ -94,48 +92,41 @@ class Assistant:
 
             clean_text = validation["clean_text"]
 
-            # Tokenization
+            # -------- TOKENIZATION --------
             tokens = tokenize(clean_text)
 
             scores = {}
             confidence = 0.0
 
             # -------- INTENT DETECTION --------
-            if tokens in (["again"], ["repeat"]):
-                if self.ctx.last_intent:
-                    intent = Intent(self.ctx.last_intent)
-                    confidence = 1.0
-                else:
-                    intent = Intent.UNKNOWN
-                    confidence = 0.0
-            else:
-                scores = score_intents(tokens)
-                intent, confidence = pick_best_intent(scores, tokens)
+            scores = score_intents(tokens)
+            intent, confidence = pick_best_intent(scores, tokens)
 
-                confidence = refine_confidence(
-                    confidence,
-                    tokens,
-                    intent.value,
-                    self.ctx.last_intent
-                )
-
-            # =================================================
-            # Day 13.3 — FOLLOW-UP CONFIDENCE HINT (SAFE)
-            # =================================================
-            if self.expecting_followup and len(clean_text.split()) <= 3:
-                confidence = min(1.0, confidence * 1.15)
+            confidence = refine_confidence(
+                confidence,
+                tokens,
+                intent.value,
+                self.ctx.last_intent
+            )
 
             logger.debug(
                 "Tokens={} | Scores={} | Intent={} | Confidence={:.2f}",
                 tokens, scores, intent.value, confidence
             )
 
-            if intent == Intent.UNKNOWN and not self.expecting_followup:
-                self.input_validator.mark_rejected()
-                print("Rudra > I don’t know how to do that yet.")
+            # =================================================
+            # 🔒 Day 14.1 — HARD SAFETY BLOCK (CRITICAL)
+            # =================================================
+            if intent == Intent.UNKNOWN:
+                percent = int(confidence * 100)
+                print(f"Rudra > I'm not confident enough ({percent}%). Please rephrase.")
+                logger.warning(
+                    "[DAY 14.1 BLOCK] UNKNOWN intent blocked | tokens={} | confidence={:.2f}",
+                    tokens, confidence
+                )
                 self.expecting_followup = False
                 continue
-
+            # =================================================
 
             save_message("user", clean_text, intent.value)
 
@@ -154,7 +145,9 @@ class Assistant:
                 break
 
             else:
-                result = self.action_executor.execute(intent, clean_text, confidence)
+                result = self.action_executor.execute(
+                    intent, clean_text, confidence
+                )
 
                 if not result.get("success", False):
                     response = result.get("message", "I couldn't do that.")
@@ -166,9 +159,7 @@ class Assistant:
             save_message("assistant", response, intent.value)
             self.ctx.update(intent.value)
 
-            # =================================================
-            # Day 13.3 — update follow-up expectation
-            # =================================================
+            # -------- FOLLOW-UP EXPECTATION (SAFE) --------
             if result and result.get("executed", False) and result.get("success", False):
                 self.expecting_followup = len(clean_text.split()) <= 4
             else:
