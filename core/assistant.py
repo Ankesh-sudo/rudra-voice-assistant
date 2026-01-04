@@ -130,11 +130,12 @@ class Assistant:
                 tokens, scores, intent.value, confidence
             )
 
-            if intent == Intent.UNKNOWN:
+            if intent == Intent.UNKNOWN and not self.expecting_followup:
                 self.input_validator.mark_rejected()
                 print("Rudra > I don’t know how to do that yet.")
                 self.expecting_followup = False
                 continue
+
 
             save_message("user", clean_text, intent.value)
 
