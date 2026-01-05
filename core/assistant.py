@@ -4,7 +4,7 @@ from core.input.input_validator import InputValidator
 from core.storage.mysql import verify_connection
 from core.input_controller import InputController
 
-# 🔽 Day 14.2 — Normalizer replaces tokenizer
+# Day 14.2 — Normalizer
 from core.nlp.normalizer import normalize_text
 
 from core.nlp.intent import Intent
@@ -22,6 +22,11 @@ from core.actions.action_executor import ActionExecutor
 IDLE = "idle"
 ACTIVE = "active"
 WAITING = "waiting"
+
+
+def has_reference(tokens: list[str]) -> bool:
+    """Detect reference-based commands like 'it', 'again'."""
+    return "__REF__" in tokens or "__REPEAT__" in tokens
 
 
 class Assistant:
@@ -53,7 +58,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 14.2 started — Phrase normalization enabled")
+        logger.info("Day 14.3 started — Context reference resolution enabled")
 
         while self.running:
             raw_text = self.input.read()
@@ -76,7 +81,6 @@ class Assistant:
                 continue
             # --------------------------------------------
 
-            # Reset silence on speech
             self.silence_count = 0
             self.state = ACTIVE
 
@@ -95,25 +99,43 @@ class Assistant:
 
             clean_text = validation["clean_text"]
 
-            # =================================================
-            # 🔽 Day 14.2 — PHRASE NORMALIZATION (NEW)
-            # =================================================
+            # -------- PHRASE NORMALIZATION (Day 14.2) --------
             tokens = normalize_text(clean_text)
-            # =================================================
+            # -----------------------------------------------
 
             scores = {}
             confidence = 0.0
+            intent = Intent.UNKNOWN
 
-            # -------- INTENT DETECTION --------
-            scores = score_intents(tokens)
-            intent, confidence = pick_best_intent(scores, tokens)
+            # =================================================
+            # 🔁 Day 14.3 — CONTEXT REFERENCE RESOLUTION
+            # =================================================
+            if has_reference(tokens):
+                if self.ctx.has_last_action():
+                    intent = Intent(self.ctx.last_intent)
+                    clean_text = self.ctx.last_text
+                    confidence = 1.0
 
-            confidence = refine_confidence(
-                confidence,
-                tokens,
-                intent.value,
-                self.ctx.last_intent
-            )
+                    logger.info(
+                        "[DAY 14.3] Replaying last action | intent={} | text='{}'",
+                        intent.value, clean_text
+                    )
+                else:
+                    print("Rudra > I’m not sure what you’re referring to.")
+                    logger.warning("[DAY 14.3 BLOCK] Reference used with no context")
+                    continue
+            else:
+                # -------- NORMAL INTENT DETECTION --------
+                scores = score_intents(tokens)
+                intent, confidence = pick_best_intent(scores, tokens)
+
+                confidence = refine_confidence(
+                    confidence,
+                    tokens,
+                    intent.value,
+                    self.ctx.last_intent
+                )
+            # =================================================
 
             logger.debug(
                 "Tokens={} | Scores={} | Intent={} | Confidence={:.2f}",
@@ -163,7 +185,19 @@ class Assistant:
             print(f"Rudra > {response}")
 
             save_message("assistant", response, intent.value)
-            self.ctx.update(intent.value)
+
+            # =================================================
+            # ✅ Update context ONLY after successful execution
+            # =================================================
+            if result and result.get("executed", False) and result.get("success", False):
+                self.ctx.update(
+                    intent.value,
+                    text=clean_text,
+                    entities=result.get("args")
+                )
+            else:
+                self.ctx.update(intent.value)
+            # =================================================
 
             # -------- FOLLOW-UP EXPECTATION (SAFE) --------
             if result and result.get("executed", False) and result.get("success", False):
