@@ -14,7 +14,7 @@ from core.context.long_term import save_message
 from core.intelligence.intent_scorer import score_intents, pick_best_intent
 from core.intelligence.confidence_refiner import refine_confidence
 
-# Day 12
+# Day 12 / Day 14.4
 from core.actions.action_executor import ActionExecutor
 
 
@@ -43,7 +43,7 @@ class Assistant:
         self.state = IDLE
         self.silence_count = 0
 
-        # Day 12 – Action executor
+        # Day 12 / Day 14.4 – Action executor
         self.action_executor = ActionExecutor()
 
         # Day 13.3 – follow-up hint (safe)
@@ -58,7 +58,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 14.3 started — Context reference resolution enabled")
+        logger.info("Day 14.4 started — Intent expansion & argument replay enabled")
 
         while self.running:
             raw_text = self.input.read()
@@ -106,23 +106,25 @@ class Assistant:
             scores = {}
             confidence = 0.0
             intent = Intent.UNKNOWN
+            replay_args = None
 
             # =================================================
-            # 🔁 Day 14.3 — CONTEXT REFERENCE RESOLUTION
+            # 🔁 Day 14.3 + 14.4 — CONTEXT REFERENCE RESOLUTION
             # =================================================
             if has_reference(tokens):
                 if self.ctx.has_last_action():
                     intent = Intent(self.ctx.last_intent)
                     clean_text = self.ctx.last_text
+                    replay_args = self.ctx.last_entities
                     confidence = 1.0
 
                     logger.info(
-                        "[DAY 14.3] Replaying last action | intent={} | text='{}'",
-                        intent.value, clean_text
+                        "[DAY 14.4] Replaying last action | intent={} | text='{}' | args={}",
+                        intent.value, clean_text, replay_args
                     )
                 else:
                     print("Rudra > I’m not sure what you’re referring to.")
-                    logger.warning("[DAY 14.3 BLOCK] Reference used with no context")
+                    logger.warning("[DAY 14 BLOCK] Reference used with no context")
                     continue
             else:
                 # -------- NORMAL INTENT DETECTION --------
@@ -174,7 +176,10 @@ class Assistant:
 
             else:
                 result = self.action_executor.execute(
-                    intent, clean_text, confidence
+                    intent,
+                    clean_text,
+                    confidence,
+                    replay_args=replay_args
                 )
 
                 if not result.get("success", False):

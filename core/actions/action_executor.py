@@ -1,10 +1,10 @@
 """
 Action Executor with Confidence Gating
-Day 13.2 — SAFE Follow-up Support (Additive)
+Day 14.4 — Argument Capture & Safe Replay
 """
 
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 
 from core.nlp.intent import Intent
 from core.nlp.argument_extractor import ArgumentExtractor
@@ -20,7 +20,7 @@ class ActionExecutor:
         self.argument_extractor = ArgumentExtractor(config)
         self.system_actions = SystemActions(config)
 
-        # Day 13.2 (SAFE, additive)
+        # Day 13.2 — SAFE follow-up memory
         self.follow_up_context = FollowUpContext()
 
         self.min_confidence = 0.3
@@ -31,42 +31,69 @@ class ActionExecutor:
     # =====================================================
     # PUBLIC ENTRY
     # =====================================================
-    def execute(self, intent: Intent, text: str, confidence: float) -> Dict[str, Any]:
+    def execute(
+        self,
+        intent: Intent,
+        text: str,
+        confidence: float,
+        replay_args: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         logger.info(f"Intent={intent.value} confidence={confidence:.2f}")
 
-        # ---------- DAY 13.2 FOLLOW-UP (SAFE) ----------
-        followup = self._try_follow_up(text, confidence)
-        if followup:
-            return followup
-        # ----------------------------------------------
+        # ---------- DAY 14.4: REPLAY ARGUMENTS ----------
+        if replay_args:
+            logger.info("[DAY 14.4] Using replay arguments: %s", replay_args)
+            args = replay_args
+        else:
+            # ---------- DAY 13.2 FOLLOW-UP (SAFE) ----------
+            followup = self._try_follow_up(text, confidence)
+            if followup:
+                return followup
+            # ----------------------------------------------
 
-        # ---------- DAY 12 FLOW (UNCHANGED) ----------
-        allowed, reason = self._check_confidence(intent, confidence, text)
-        if not allowed:
-            return {
-                "success": False,
-                "message": self._rejection_message(reason, confidence),
-                "confidence": confidence,
-                "executed": False,
-                "reason": reason
-            }
+            # ---------- CONFIDENCE CHECK ----------
+            allowed, reason = self._check_confidence(intent, confidence, text)
+            if not allowed:
+                return {
+                    "success": False,
+                    "message": self._rejection_message(reason, confidence),
+                    "confidence": confidence,
+                    "executed": False,
+                    "reason": reason
+                }
 
-        args = self.argument_extractor.extract_for_intent(text, intent.value)
-        valid, msg = self.argument_extractor.validate_arguments(args, intent.value)
-        if not valid:
-            return {
-                "success": False,
-                "message": msg,
-                "confidence": confidence,
-                "executed": False
-            }
+            # ---------- ARGUMENT EXTRACTION ----------
+            args = self.argument_extractor.extract_for_intent(
+                text, intent.value
+            )
 
+            valid, msg = self.argument_extractor.validate_arguments(
+                args, intent.value
+            )
+            if not valid:
+                return {
+                    "success": False,
+                    "message": msg,
+                    "confidence": confidence,
+                    "executed": False
+                }
+
+        # ---------- EXECUTE ----------
         result = self._execute_intent(intent, args)
 
-        # Store successful actions for follow-up
+        # ---------- STORE CONTEXT FOR REPLAY ----------
         if result.get("success", False):
             action_name = self._intent_to_action_name(intent)
-            self.follow_up_context.add_context(action_name, result, text)
+
+            # 🔒 Store resolved args (CRITICAL FIX)
+            self.follow_up_context.add_context(
+                action_name,
+                {
+                    "entities": args,
+                    "result": result
+                },
+                text
+            )
 
         self._log(intent, text, confidence, result)
 
@@ -75,6 +102,7 @@ class ActionExecutor:
             "message": result.get("message", ""),
             "confidence": confidence,
             "executed": True,
+            "args": args,          # 🔽 returned for ShortTermContext
             "result": result
         }
 
@@ -84,7 +112,6 @@ class ActionExecutor:
     def _try_follow_up(self, text: str, confidence: float) -> Optional[Dict[str, Any]]:
         text_lower = text.lower()
 
-        # Hard filter: avoids interfering with normal commands
         follow_words = ["it", "that", "there", "again", "same"]
         if not any(w in text_lower for w in follow_words):
             return None
@@ -100,13 +127,17 @@ class ActionExecutor:
         if not safe_action:
             return None
 
-        args = self._build_followup_args(entities)
+        args = entities.copy()
 
         try:
             result = self._execute_followup_action(safe_action, args)
 
             if result.get("success", False):
-                self.follow_up_context.add_context(safe_action, result, text)
+                self.follow_up_context.add_context(
+                    safe_action,
+                    {"entities": args, "result": result},
+                    text
+                )
 
             self._log_followup(text, confidence, result)
 
@@ -115,6 +146,7 @@ class ActionExecutor:
                 "message": result.get("message", ""),
                 "confidence": min(1.0, confidence * 1.1),
                 "executed": True,
+                "args": args,
                 "result": result,
                 "is_followup": True
             }
@@ -141,28 +173,7 @@ class ActionExecutor:
 
         return original_action
 
-    def _build_followup_args(self, entities: Dict[str, Any]) -> Dict[str, Any]:
-        args = {}
-
-        if "url" in entities:
-            args["url"] = entities["url"]
-            args["target"] = entities.get("target", "previous")
-
-        if "path" in entities:
-            args["path"] = entities["path"]
-            args["target"] = entities.get("target", "previous")
-
-        if "query" in entities:
-            args["query"] = entities["query"]
-            args["target"] = "previous_search"
-
-        return args
-
     def _execute_followup_action(self, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        CRITICAL FIX:
-        Uses ONLY existing Day 12 SystemActions methods
-        """
         if action == "open_browser":
             return self.system_actions.open_browser(
                 url=args.get("url"), target=args.get("target")
@@ -198,7 +209,7 @@ class ActionExecutor:
         return {"success": False, "message": f"Unsupported follow-up action: {action}"}
 
     # =====================================================
-    # DAY 12 CODE (UNCHANGED)
+    # CORE EXECUTION (Day 12)
     # =====================================================
     def _execute_intent(self, intent: Intent, args: Dict[str, Any]) -> Dict[str, Any]:
         if intent == Intent.OPEN_BROWSER:
@@ -235,6 +246,9 @@ class ActionExecutor:
 
         return {"success": False, "message": f"Intent not implemented: {intent.value}"}
 
+    # =====================================================
+    # SAFETY + UTILS
+    # =====================================================
     def _check_confidence(self, intent: Intent, confidence: float, text: str):
         basic_intents = {Intent.GREETING, Intent.HELP, Intent.EXIT}
 
