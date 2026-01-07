@@ -24,6 +24,17 @@ from core.actions.action_executor import ActionExecutor
 INTENT_CONFIDENCE_THRESHOLD = 0.65
 
 
+# ===============================
+# Day 17.1 — Clarification pool
+# ===============================
+CLARIFICATION_MESSAGES = [
+    "I’m not sure what you meant. Can you rephrase?",
+    "Could you explain that a bit more?",
+    "I didn’t fully get that. What would you like to do?",
+    "That’s unclear to me—can you try again?",
+]
+
+
 # Day 9.3 – Listening states
 IDLE = "idle"
 ACTIVE = "active"
@@ -55,6 +66,21 @@ class Assistant:
         # Day 13.3 – follow-up hint (safe)
         self.expecting_followup = False
 
+        # ===============================
+        # Day 17 — Clarification state
+        # ===============================
+        self.clarify_index = 0
+        self.failure_count = 0
+        self.last_was_clarification = False
+
+    # ===============================
+    # Day 17.1 — Clarification helper
+    # ===============================
+    def next_clarification(self) -> str:
+        msg = CLARIFICATION_MESSAGES[self.clarify_index]
+        self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
+        return msg
+
     def run(self):
         logger.info("Assistant initialized: {}", self.name)
 
@@ -64,7 +90,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 16 started — Intent confidence gating enabled")
+        logger.info("Day 17.1 started — Clarification pool initialized")
 
         while self.running:
             raw_text = self.input.read()
@@ -151,7 +177,7 @@ class Assistant:
             )
 
             # =================================================
-            # 🔒 Day 16 — HARD CONFIDENCE GATE (Assistant-level)
+            # 🔒 Day 16 — HARD CONFIDENCE GATE (unchanged)
             # =================================================
             if confidence < INTENT_CONFIDENCE_THRESHOLD:
                 percent = int(confidence * 100)
@@ -165,7 +191,7 @@ class Assistant:
             # =================================================
 
             # =================================================
-            # 🔒 Day 14.1 — UNKNOWN INTENT BLOCK (STILL VALID)
+            # 🔒 Day 14.1 — UNKNOWN INTENT BLOCK (unchanged)
             # =================================================
             if intent == Intent.UNKNOWN:
                 percent = int(confidence * 100)
