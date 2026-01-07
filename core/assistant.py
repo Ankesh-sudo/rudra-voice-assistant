@@ -18,6 +18,12 @@ from core.intelligence.confidence_refiner import refine_confidence
 from core.actions.action_executor import ActionExecutor
 
 
+# ===============================
+# Day 16 — Global confidence gate
+# ===============================
+INTENT_CONFIDENCE_THRESHOLD = 0.65
+
+
 # Day 9.3 – Listening states
 IDLE = "idle"
 ACTIVE = "active"
@@ -58,7 +64,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 14.4 started — Intent expansion & argument replay enabled")
+        logger.info("Day 16 started — Intent confidence gating enabled")
 
         while self.running:
             raw_text = self.input.read()
@@ -145,7 +151,21 @@ class Assistant:
             )
 
             # =================================================
-            # 🔒 Day 14.1 — HARD SAFETY BLOCK (STILL ACTIVE)
+            # 🔒 Day 16 — HARD CONFIDENCE GATE (Assistant-level)
+            # =================================================
+            if confidence < INTENT_CONFIDENCE_THRESHOLD:
+                percent = int(confidence * 100)
+                print(f"Rudra > I'm not confident enough ({percent}%). Can you rephrase?")
+                logger.warning(
+                    "[DAY 16 BLOCK] Low confidence intent blocked | intent={} | tokens={} | confidence={:.2f}",
+                    intent.value, tokens, confidence
+                )
+                self.expecting_followup = False
+                continue
+            # =================================================
+
+            # =================================================
+            # 🔒 Day 14.1 — UNKNOWN INTENT BLOCK (STILL VALID)
             # =================================================
             if intent == Intent.UNKNOWN:
                 percent = int(confidence * 100)
@@ -158,6 +178,7 @@ class Assistant:
                 continue
             # =================================================
 
+            # -------- MEMORY WRITE (SAFE ZONE) --------
             save_message("user", clean_text, intent.value)
 
             # -------- EXECUTION --------
