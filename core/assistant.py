@@ -90,7 +90,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 17.1 started — Clarification pool initialized")
+        logger.info("Day 17.2 started — Failure count tracking enabled")
 
         while self.running:
             raw_text = self.input.read()
@@ -177,29 +177,39 @@ class Assistant:
             )
 
             # =================================================
-            # 🔒 Day 16 — HARD CONFIDENCE GATE (unchanged)
+            # 🔒 Day 17.2 — LOW CONFIDENCE BLOCK
             # =================================================
             if confidence < INTENT_CONFIDENCE_THRESHOLD:
-                percent = int(confidence * 100)
-                print(f"Rudra > I'm not confident enough ({percent}%). Can you rephrase?")
+                self.failure_count += 1
+                self.last_was_clarification = True
+
+                msg = self.next_clarification()
+                print(f"Rudra > {msg}")
+
                 logger.warning(
-                    "[DAY 16 BLOCK] Low confidence intent blocked | intent={} | tokens={} | confidence={:.2f}",
-                    intent.value, tokens, confidence
+                    "[DAY 17] Low confidence blocked | failures={} | intent={} | confidence={:.2f}",
+                    self.failure_count, intent.value, confidence
                 )
+
                 self.expecting_followup = False
                 continue
             # =================================================
 
             # =================================================
-            # 🔒 Day 14.1 — UNKNOWN INTENT BLOCK (unchanged)
+            # 🔒 Day 17.2 — UNKNOWN INTENT BLOCK
             # =================================================
             if intent == Intent.UNKNOWN:
-                percent = int(confidence * 100)
-                print(f"Rudra > I'm not confident enough ({percent}%). Please rephrase.")
+                self.failure_count += 1
+                self.last_was_clarification = True
+
+                msg = self.next_clarification()
+                print(f"Rudra > {msg}")
+
                 logger.warning(
-                    "[DAY 14 BLOCK] UNKNOWN intent blocked | tokens={} | confidence={:.2f}",
-                    tokens, confidence
+                    "[DAY 17] UNKNOWN intent blocked | failures={} | tokens={}",
+                    self.failure_count, tokens
                 )
+
                 self.expecting_followup = False
                 continue
             # =================================================
@@ -239,9 +249,12 @@ class Assistant:
             save_message("assistant", response, intent.value)
 
             # =================================================
-            # ✅ Update context ONLY after successful execution
+            # ✅ SUCCESS → RESET FAILURE STATE
             # =================================================
             if result and result.get("executed", False) and result.get("success", False):
+                self.failure_count = 0
+                self.last_was_clarification = False
+
                 self.ctx.update(
                     intent.value,
                     text=clean_text,
