@@ -4,17 +4,13 @@ from core.input.input_validator import InputValidator
 from core.storage.mysql import verify_connection
 from core.input_controller import InputController
 
-# Day 14.2 — Normalizer
 from core.nlp.normalizer import normalize_text
-
 from core.nlp.intent import Intent
 from core.skills.basic import handle as basic_handle
 from core.context.short_term import ShortTermContext
 from core.context.long_term import save_message
 from core.intelligence.intent_scorer import score_intents, pick_best_intent
 from core.intelligence.confidence_refiner import refine_confidence
-
-# Day 12 / Day 14.4
 from core.actions.action_executor import ActionExecutor
 
 
@@ -49,22 +45,22 @@ HELP_MESSAGE = (
 )
 
 
-# Day 9.3 – Listening states
 IDLE = "idle"
 ACTIVE = "active"
 WAITING = "waiting"
 
 
 def has_reference(tokens: list[str]) -> bool:
-    """Detect reference-based commands like 'it', 'again'."""
     return "__REF__" in tokens or "__REPEAT__" in tokens
 
 
-# ===============================
-# Day 17.4 — Pronoun-only detector
-# ===============================
 def is_pronoun_only(tokens: list[str]) -> bool:
     return "__REF__" in tokens or "__REPEAT__" in tokens
+
+
+def is_short_followup(tokens: list[str]) -> bool:
+    """Day 17.5 — short but meaningful follow-up"""
+    return 1 <= len(tokens) <= 3 and not is_pronoun_only(tokens)
 
 
 class Assistant:
@@ -74,29 +70,17 @@ class Assistant:
         self.running = True
         self.ctx = ShortTermContext()
 
-        # Day 9.1 – Input intelligence gate
         self.input_validator = InputValidator()
-
-        # Day 9.3 – Active listening state
         self.state = IDLE
         self.silence_count = 0
-
-        # Day 12 / Day 14.4 – Action executor
         self.action_executor = ActionExecutor()
-
-        # Day 13.3 – follow-up hint (safe)
         self.expecting_followup = False
 
-        # ===============================
-        # Day 17 — Clarification state
-        # ===============================
+        # Day 17 state
         self.clarify_index = 0
         self.failure_count = 0
         self.last_was_clarification = False
 
-    # ===============================
-    # Day 17.1 — Clarification helper
-    # ===============================
     def next_clarification(self) -> str:
         msg = CLARIFICATION_MESSAGES[self.clarify_index]
         self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
@@ -106,69 +90,44 @@ class Assistant:
         logger.info("Assistant initialized: {}", self.name)
 
         ok, msg = verify_connection()
-        if ok:
-            logger.info("MySQL connection OK: {}", msg)
-        else:
-            logger.error("MySQL connection FAILED: {}", msg)
+        logger.info("MySQL connection OK: {}", msg) if ok else logger.error(msg)
 
-        logger.info("Day 17.4 started — Pronoun block after clarification enabled")
+        logger.info("Day 17.5 started — Smart follow-up recovery enabled")
 
         while self.running:
             raw_text = self.input.read()
 
-            # -------- SILENCE HANDLING (Day 9.3) --------
             if not raw_text:
                 if self.state in (ACTIVE, WAITING):
                     self.silence_count += 1
-
                     if self.silence_count == 1:
                         print("Rudra > I'm listening.")
                         self.state = WAITING
                         continue
-
                     if self.silence_count >= 2:
                         print("Rudra > Going to sleep.")
                         self.state = IDLE
                         self.silence_count = 0
-                        continue
                 continue
-            # --------------------------------------------
 
             self.silence_count = 0
             self.state = ACTIVE
 
-            # -------- INPUT VALIDATION --------
             validation = self.input_validator.validate(raw_text)
-
-            logger.debug("[INPUT] raw='{}'", raw_text)
-            logger.debug("[INPUT] clean='{}'", validation.get("clean_text"))
-            logger.debug("[VALIDATION] {}", validation)
-
             if not validation["valid"]:
                 self.input_validator.mark_rejected()
                 print("Rudra > I didn’t understand. Please repeat.")
                 continue
-            # ---------------------------------
 
             clean_text = validation["clean_text"]
-
-            # -------- PHRASE NORMALIZATION (Day 14.2) --------
             tokens = normalize_text(clean_text)
-            # -----------------------------------------------
 
             # =================================================
-            # 🔒 Day 17.4 — PRONOUN BLOCK AFTER CLARIFICATION
+            # 🔒 Day 17.4 — Pronoun-only block
             # =================================================
-            if (
-                self.last_was_clarification
-                and is_pronoun_only(tokens)
-                and not self.ctx.has_last_action()
-            ):
+            if self.last_was_clarification and is_pronoun_only(tokens):
                 print("Rudra > Please say a full command so I can help you.")
-                logger.warning("[DAY 17.4] Pronoun blocked after clarification")
-                self.expecting_followup = False
                 continue
-            # =================================================
 
             scores = {}
             confidence = 0.0
@@ -176,7 +135,7 @@ class Assistant:
             replay_args = None
 
             # =================================================
-            # 🔁 Day 14.3 + 14.4 — CONTEXT REFERENCE RESOLUTION
+            # 🔁 Context replay (unchanged)
             # =================================================
             if has_reference(tokens):
                 if self.ctx.has_last_action():
@@ -184,134 +143,85 @@ class Assistant:
                     clean_text = self.ctx.last_text
                     replay_args = self.ctx.last_entities
                     confidence = 1.0
-
-                    logger.info(
-                        "[DAY 14.4] Replaying last action | intent={} | text='{}' | args={}",
-                        intent.value, clean_text, replay_args
-                    )
                 else:
                     print("Rudra > I’m not sure what you’re referring to.")
-                    logger.warning("[DAY 14 BLOCK] Reference used with no context")
                     continue
+
+            # =================================================
+            # 🧠 Day 17.5 — SMART FOLLOW-UP RECOVERY
+            # =================================================
+            elif (
+                self.last_was_clarification
+                and is_short_followup(tokens)
+                and self.ctx.has_last_action()
+            ):
+                intent = Intent(self.ctx.last_intent)
+                confidence = 0.75  # boosted, not forced
+                logger.info(
+                    "[DAY 17.5] Recovering intent={} from short follow-up tokens={}",
+                    intent.value, tokens
+                )
+
             else:
                 scores = score_intents(tokens)
                 intent, confidence = pick_best_intent(scores, tokens)
-
                 confidence = refine_confidence(
-                    confidence,
-                    tokens,
-                    intent.value,
-                    self.ctx.last_intent
+                    confidence, tokens, intent.value, self.ctx.last_intent
                 )
-            # =================================================
 
             logger.debug(
-                "Tokens={} | Scores={} | Intent={} | Confidence={:.2f}",
-                tokens, scores, intent.value, confidence
+                "Tokens={} | Intent={} | Confidence={:.2f}",
+                tokens, intent.value, confidence
             )
 
             # =================================================
-            # 🔒 Day 17.3 — LOW CONFIDENCE BLOCK + COOLDOWN
+            # 🔒 Confidence gate
             # =================================================
             if confidence < INTENT_CONFIDENCE_THRESHOLD:
                 self.failure_count += 1
                 self.last_was_clarification = True
 
-                if self.failure_count >= HELP_THRESHOLD:
-                    msg = HELP_MESSAGE
-                elif self.failure_count >= COOLDOWN_THRESHOLD:
-                    msg = "Let’s take it slowly. What would you like to do?"
-                else:
-                    msg = self.next_clarification()
-
-                print(f"Rudra > {msg}")
-
-                logger.warning(
-                    "[DAY 17.3] Low confidence blocked | failures={} | confidence={:.2f}",
-                    self.failure_count, confidence
+                msg = (
+                    HELP_MESSAGE
+                    if self.failure_count >= HELP_THRESHOLD
+                    else self.next_clarification()
                 )
 
-                self.expecting_followup = False
+                print(f"Rudra > {msg}")
                 continue
-            # =================================================
 
-            # =================================================
-            # 🔒 Day 17.3 — UNKNOWN INTENT BLOCK + COOLDOWN
-            # =================================================
             if intent == Intent.UNKNOWN:
                 self.failure_count += 1
                 self.last_was_clarification = True
-
-                if self.failure_count >= HELP_THRESHOLD:
-                    msg = HELP_MESSAGE
-                elif self.failure_count >= COOLDOWN_THRESHOLD:
-                    msg = "That didn’t work. Let’s try something simple."
-                else:
-                    msg = self.next_clarification()
-
-                print(f"Rudra > {msg}")
-
-                logger.warning(
-                    "[DAY 17.3] UNKNOWN intent blocked | failures={}",
-                    self.failure_count
-                )
-
-                self.expecting_followup = False
+                print(f"Rudra > {self.next_clarification()}")
                 continue
-            # =================================================
 
-            # -------- MEMORY WRITE (SAFE ZONE) --------
+            # -------- MEMORY --------
             save_message("user", clean_text, intent.value)
 
             # -------- EXECUTION --------
-            response = None
             result = None
-
             if intent in (Intent.GREETING, Intent.HELP):
                 response = basic_handle(intent, clean_text)
 
             elif intent == Intent.EXIT:
-                response = "Goodbye!"
-                print(f"Rudra > {response}")
-                save_message("assistant", response, intent.value)
-                self.running = False
+                print("Rudra > Goodbye!")
+                save_message("assistant", "Goodbye!", intent.value)
                 break
 
             else:
                 result = self.action_executor.execute(
-                    intent,
-                    clean_text,
-                    confidence,
-                    replay_args=replay_args
+                    intent, clean_text, confidence, replay_args=replay_args
                 )
-
-                if not result.get("success", False):
-                    response = result.get("message", "I couldn't do that.")
-                else:
-                    response = result.get("message", "Done.")
+                response = result.get("message", "Done.")
 
             print(f"Rudra > {response}")
-
             save_message("assistant", response, intent.value)
 
-            # =================================================
-            # ✅ SUCCESS → RESET FAILURE STATE
-            # =================================================
-            if result and result.get("executed", False) and result.get("success", False):
+            # -------- SUCCESS RESET --------
+            if result and result.get("success"):
                 self.failure_count = 0
                 self.last_was_clarification = False
-
-                self.ctx.update(
-                    intent.value,
-                    text=clean_text,
-                    entities=result.get("args")
-                )
+                self.ctx.update(intent.value, text=clean_text, entities=result.get("args"))
             else:
                 self.ctx.update(intent.value)
-            # =================================================
-
-            # -------- FOLLOW-UP EXPECTATION (SAFE) --------
-            if result and result.get("executed", False) and result.get("success", False):
-                self.expecting_followup = len(clean_text.split()) <= 4
-            else:
-                self.expecting_followup = False
