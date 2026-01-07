@@ -35,6 +35,20 @@ CLARIFICATION_MESSAGES = [
 ]
 
 
+# ===============================
+# Day 17.3 — Cooldown thresholds
+# ===============================
+COOLDOWN_THRESHOLD = 2
+HELP_THRESHOLD = 3
+
+HELP_MESSAGE = (
+    "Let’s slow down. You can say things like:\n"
+    "- open browser\n"
+    "- search Python decorators\n"
+    "- open downloads folder"
+)
+
+
 # Day 9.3 – Listening states
 IDLE = "idle"
 ACTIVE = "active"
@@ -90,7 +104,7 @@ class Assistant:
         else:
             logger.error("MySQL connection FAILED: {}", msg)
 
-        logger.info("Day 17.2 started — Failure count tracking enabled")
+        logger.info("Day 17.3 started — Cooldown & help prompts enabled")
 
         while self.running:
             raw_text = self.input.read()
@@ -177,18 +191,24 @@ class Assistant:
             )
 
             # =================================================
-            # 🔒 Day 17.2 — LOW CONFIDENCE BLOCK
+            # 🔒 Day 17.3 — LOW CONFIDENCE BLOCK + COOLDOWN
             # =================================================
             if confidence < INTENT_CONFIDENCE_THRESHOLD:
                 self.failure_count += 1
                 self.last_was_clarification = True
 
-                msg = self.next_clarification()
+                if self.failure_count >= HELP_THRESHOLD:
+                    msg = HELP_MESSAGE
+                elif self.failure_count >= COOLDOWN_THRESHOLD:
+                    msg = "Let’s take it slowly. What would you like to do?"
+                else:
+                    msg = self.next_clarification()
+
                 print(f"Rudra > {msg}")
 
                 logger.warning(
-                    "[DAY 17] Low confidence blocked | failures={} | intent={} | confidence={:.2f}",
-                    self.failure_count, intent.value, confidence
+                    "[DAY 17.3] Low confidence blocked | failures={} | confidence={:.2f}",
+                    self.failure_count, confidence
                 )
 
                 self.expecting_followup = False
@@ -196,18 +216,24 @@ class Assistant:
             # =================================================
 
             # =================================================
-            # 🔒 Day 17.2 — UNKNOWN INTENT BLOCK
+            # 🔒 Day 17.3 — UNKNOWN INTENT BLOCK + COOLDOWN
             # =================================================
             if intent == Intent.UNKNOWN:
                 self.failure_count += 1
                 self.last_was_clarification = True
 
-                msg = self.next_clarification()
+                if self.failure_count >= HELP_THRESHOLD:
+                    msg = HELP_MESSAGE
+                elif self.failure_count >= COOLDOWN_THRESHOLD:
+                    msg = "That didn’t work. Let’s try something simple."
+                else:
+                    msg = self.next_clarification()
+
                 print(f"Rudra > {msg}")
 
                 logger.warning(
-                    "[DAY 17] UNKNOWN intent blocked | failures={} | tokens={}",
-                    self.failure_count, tokens
+                    "[DAY 17.3] UNKNOWN intent blocked | failures={}",
+                    self.failure_count
                 )
 
                 self.expecting_followup = False
