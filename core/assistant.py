@@ -13,6 +13,7 @@ from core.actions.action_executor import ActionExecutor
 
 from core.control.global_interrupt import GLOBAL_INTERRUPT
 from core.control.interrupt_words import INTERRUPT_KEYWORDS
+from core.control.interrupt_policy import INTERRUPT_POLICY  # 🆕 Day 18.4
 
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
@@ -35,7 +36,6 @@ class Assistant:
         self.ctx = ShortTermContext()
         self.input_validator = InputValidator()
         self.state = IDLE
-        self.silence_count = 0
 
         self.action_executor = ActionExecutor()
 
@@ -46,19 +46,27 @@ class Assistant:
 
         self.clarify_index = 0
 
+    # =================================================
+    # UTIL
+    # =================================================
     def next_clarification(self):
         msg = CLARIFICATION_MESSAGES[self.clarify_index]
         self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
         return msg
 
+    def _get_interrupt_policy(self, intent: Intent | None) -> str:
+        """
+        Resolve interrupt policy for an intent.
+        Default = HARD (safe).
+        """
+        if not intent:
+            return "HARD"
+        return INTERRUPT_POLICY.get(intent, "HARD")
+
     # =================================================
-    # DAY 18.2 / 18.3 — EMBEDDED INTERRUPT DETECTION
+    # DAY 18.2+ — EMBEDDED INTERRUPT DETECTION
     # =================================================
     def _detect_embedded_interrupt(self, tokens: list[str]) -> bool:
-        """
-        Detect interrupt words anywhere in the utterance
-        with negation guard.
-        """
         for idx, token in enumerate(tokens):
             if token in INTERRUPT_KEYWORDS:
                 if idx > 0 and tokens[idx - 1] in NEGATION_TOKENS:
@@ -67,17 +75,30 @@ class Assistant:
         return False
 
     # =================================================
-    # DAY 18.3 — GLOBAL INTERRUPT HANDLER (AUTHORITY)
+    # DAY 18.4 — INTENT-AWARE INTERRUPT HANDLER
     # =================================================
-    def _handle_global_interrupt(self, source: str):
-        logger.warning(f"Global interrupt triggered ({source})")
+    def _handle_interrupt(self, source: str, intent: Intent | None):
+        policy = self._get_interrupt_policy(intent)
 
+        logger.warning(
+            f"Interrupt triggered ({source}) | policy={policy}"
+        )
+
+        # 🟢 IGNORE
+        if policy == "IGNORE":
+            return
+
+        # 🟡 SOFT
+        if policy == "SOFT":
+            print("Rudra > Do you want me to stop this action?")
+            # Keep pending intent; wait for user confirmation
+            return
+
+        # 🔴 HARD (default)
         GLOBAL_INTERRUPT.trigger()
 
-        # Cancel execution & follow-ups
         self.action_executor.cancel_pending()
 
-        # Reset assistant execution state
         self.pending_intent = None
         self.pending_args = {}
         self.missing_args = []
@@ -89,11 +110,10 @@ class Assistant:
         GLOBAL_INTERRUPT.clear()
 
     # =================================================
-    # CORE SINGLE CYCLE (USED BY run & run_once)
+    # CORE SINGLE CYCLE (run & run_once)
     # =================================================
     def _cycle(self):
         raw_text = self.input.read()
-
         if not raw_text and not self.pending_intent:
             return
 
@@ -105,17 +125,14 @@ class Assistant:
         clean_text = validation["clean_text"]
         tokens = normalize_text(clean_text)
 
-        # 🔴 ABSOLUTE PRIORITY — INTERRUPT
+        # 🔴 INTERRUPT (ABSOLUTE PRIORITY)
+        current_intent = self.pending_intent
         if self._detect_embedded_interrupt(tokens):
-            self._handle_global_interrupt("embedded")
+            self._handle_interrupt("embedded", current_intent)
             return
 
         # ================= SLOT RECOVERY =================
         if self.pending_intent:
-            if GLOBAL_INTERRUPT.is_triggered():
-                self._handle_global_interrupt("slot")
-                return
-
             new_args = self.action_executor.fill_missing(
                 self.pending_intent, clean_text, self.missing_args
             )
@@ -181,13 +198,12 @@ class Assistant:
     # PRODUCTION LOOP
     # =================================================
     def run(self):
-        logger.info("Day 18.3 — Unified Interrupt Control enabled")
-
+        logger.info("Day 18.4 — Intent-Aware Interrupts enabled")
         while self.running:
             self._cycle()
 
     # =================================================
-    # DAY 18.3 — TEST SAFE SINGLE CYCLE
+    # TEST-SAFE SINGLE CYCLE
     # =================================================
     def run_once(self):
         """

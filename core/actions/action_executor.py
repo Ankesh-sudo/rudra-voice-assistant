@@ -2,7 +2,8 @@
 Action Executor
 Day 17.6 — Confidence Gating + Follow-up + Slot Recovery (FINAL)
 Day 18.1 — Global Interrupt Guard (READ-ONLY)
-Day 18.3 — Safe Cancel Hook (ADDED)
+Day 18.3 — Safe Cancel Hook (FINAL)
+Day 18.4 — Policy-Compatible (NO OWNERSHIP)
 """
 
 import logging
@@ -13,10 +14,11 @@ from core.nlp.intent import Intent
 from core.nlp.argument_extractor import ArgumentExtractor
 from core.skills.system_actions import SystemActions
 from core.context.follow_up import FollowUpContext, INTENT_ENTITY_WHITELIST
-from core.control.global_interrupt import GLOBAL_INTERRUPT  # read-only
+from core.control.global_interrupt import GLOBAL_INTERRUPT  # READ-ONLY
 
 logger = logging.getLogger(__name__)
 
+# Never auto-repeat dangerous intents
 DANGEROUS_INTENTS = {Intent.OPEN_TERMINAL}
 
 REQUIRED_ARGS = {
@@ -48,7 +50,7 @@ class ActionExecutor:
     def cancel_pending(self):
         """
         Cancel follow-up context safely.
-        Memory is preserved.
+        Memory and history are preserved.
         """
         self.follow_up_context.clear_context()
 
@@ -83,6 +85,7 @@ class ActionExecutor:
             followup_text, intent.value
         ) or {}
 
+        # Single-slot recovery: map full text
         if missing and len(missing) == 1 and not args.get(missing[0]):
             args[missing[0]] = followup_text.strip()
 
@@ -99,7 +102,7 @@ class ActionExecutor:
         replay_args: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
 
-        # 🔴 HARD GUARD — execution stops, but does NOT clear interrupt
+        # 🔴 HARD GUARD — executor never clears interrupt
         if GLOBAL_INTERRUPT.is_triggered():
             logger.warning("Execution skipped due to global interrupt")
             return {
@@ -111,6 +114,7 @@ class ActionExecutor:
 
         logger.info("Intent=%s confidence=%.2f", intent.value, confidence)
 
+        # ---------------- UNKNOWN ----------------
         if intent == Intent.UNKNOWN:
             self.follow_up_context.clear_context()
             return {
@@ -263,7 +267,10 @@ class ActionExecutor:
     # =====================================================
     # ACTION DISPATCH
     # =====================================================
-    def _execute_action_by_name(self, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_action_by_name(
+        self, action: str, args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+
         if GLOBAL_INTERRUPT.is_triggered():
             return {"success": False, "message": "Action cancelled."}
 
@@ -286,7 +293,12 @@ class ActionExecutor:
 
         return {"success": False, "message": f"Intent not implemented: {action}"}
 
-    def _filter_args_by_intent(self, intent: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    # =====================================================
+    # HELPERS
+    # =====================================================
+    def _filter_args_by_intent(
+        self, intent: str, args: Dict[str, Any]
+    ) -> Dict[str, Any]:
         allowed = INTENT_ENTITY_WHITELIST.get(intent, [])
         return {k: v for k, v in (args or {}).items() if k in allowed}
 
