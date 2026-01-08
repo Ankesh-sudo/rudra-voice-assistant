@@ -1,7 +1,6 @@
 from loguru import logger
 
 from core.input.input_validator import InputValidator
-from core.storage.mysql import verify_connection
 from core.input_controller import InputController
 from core.nlp.normalizer import normalize_text
 from core.nlp.intent import Intent
@@ -25,6 +24,8 @@ CLARIFICATION_MESSAGES = [
 ]
 
 IDLE, ACTIVE, WAITING = "idle", "active", "waiting"
+
+NEGATION_TOKENS = {"dont", "do not", "never", "no"}
 
 
 class Assistant:
@@ -50,13 +51,24 @@ class Assistant:
         self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
         return msg
 
-    def _is_global_interrupt(self, text: str) -> bool:
-        if not text:
-            return False
-        return text.lower().strip() in INTERRUPT_KEYWORDS
+    # ===============================
+    # DAY 18.2 — EMBEDDED INTERRUPTS
+    # ===============================
+    def _detect_embedded_interrupt(self, tokens: list[str]) -> bool:
+        """
+        Detect interrupt words anywhere in the utterance
+        while guarding against negation.
+        """
+        for idx, token in enumerate(tokens):
+            if token in INTERRUPT_KEYWORDS:
+                # Guard: negation immediately before interrupt
+                if idx > 0 and tokens[idx - 1] in NEGATION_TOKENS:
+                    return False
+                return True
+        return False
 
-    def _handle_global_interrupt(self, text: str):
-        logger.warning(f"Global interrupt triggered by: {text}")
+    def _handle_global_interrupt(self, source: str):
+        logger.warning(f"Global interrupt triggered ({source})")
 
         GLOBAL_INTERRUPT.trigger()
 
@@ -72,15 +84,10 @@ class Assistant:
         print("Rudra > Okay, stopped.")
 
     def run(self):
-        logger.info("Day 18.1 — Global Interrupts enabled")
+        logger.info("Day 18.2 — Embedded Interrupts enabled")
 
         while self.running:
             raw_text = self.input.read()
-
-            # 🔴 GLOBAL INTERRUPT — ABSOLUTE PRIORITY
-            if self._is_global_interrupt(raw_text):
-                self._handle_global_interrupt(raw_text)
-                continue
 
             # ❌ DO NOT SLEEP DURING SLOT RECOVERY
             if not raw_text and not self.pending_intent:
@@ -102,13 +109,17 @@ class Assistant:
             clean_text = validation["clean_text"]
             tokens = normalize_text(clean_text)
 
+            # 🔴 DAY 18.2 — EMBEDDED INTERRUPT (ABSOLUTE PRIORITY)
+            if self._detect_embedded_interrupt(tokens):
+                self._handle_global_interrupt("embedded")
+                continue
+
             # ======================================
             # SLOT RECOVERY MODE
             # ======================================
             if self.pending_intent:
-                # Abort slot recovery if interrupt occurred mid-loop
                 if GLOBAL_INTERRUPT.is_triggered():
-                    self._handle_global_interrupt("interrupt")
+                    self._handle_global_interrupt("slot")
                     continue
 
                 new_args = self.action_executor.fill_missing(
