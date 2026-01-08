@@ -25,7 +25,7 @@ CLARIFICATION_MESSAGES = [
 
 IDLE, ACTIVE, WAITING = "idle", "active", "waiting"
 
-NEGATION_TOKENS = {"dont", "do not", "never", "no"}
+NEGATION_TOKENS = {"dont", "do", "not", "never", "no"}
 
 
 class Assistant:
@@ -39,7 +39,7 @@ class Assistant:
 
         self.action_executor = ActionExecutor()
 
-        # Day 17.6 slot state
+        # Slot recovery (Day 17.6)
         self.pending_intent = None
         self.pending_args = {}
         self.missing_args = []
@@ -51,144 +51,147 @@ class Assistant:
         self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
         return msg
 
-    # ===============================
-    # DAY 18.2 — EMBEDDED INTERRUPTS
-    # ===============================
+    # =================================================
+    # DAY 18.2 / 18.3 — EMBEDDED INTERRUPT DETECTION
+    # =================================================
     def _detect_embedded_interrupt(self, tokens: list[str]) -> bool:
         """
         Detect interrupt words anywhere in the utterance
-        while guarding against negation.
+        with negation guard.
         """
         for idx, token in enumerate(tokens):
             if token in INTERRUPT_KEYWORDS:
-                # Guard: negation immediately before interrupt
                 if idx > 0 and tokens[idx - 1] in NEGATION_TOKENS:
                     return False
                 return True
         return False
 
+    # =================================================
+    # DAY 18.3 — GLOBAL INTERRUPT HANDLER (AUTHORITY)
+    # =================================================
     def _handle_global_interrupt(self, source: str):
         logger.warning(f"Global interrupt triggered ({source})")
 
         GLOBAL_INTERRUPT.trigger()
 
-        # Reset ONLY execution-related state
+        # Cancel execution & follow-ups
+        self.action_executor.cancel_pending()
+
+        # Reset assistant execution state
         self.pending_intent = None
         self.pending_args = {}
         self.missing_args = []
 
         self.input.reset_execution_state()
 
-        GLOBAL_INTERRUPT.clear()
-
         print("Rudra > Okay, stopped.")
 
-    def run(self):
-        logger.info("Day 18.2 — Embedded Interrupts enabled")
+        GLOBAL_INTERRUPT.clear()
 
-        while self.running:
-            raw_text = self.input.read()
+    # =================================================
+    # CORE SINGLE CYCLE (USED BY run & run_once)
+    # =================================================
+    def _cycle(self):
+        raw_text = self.input.read()
 
-            # ❌ DO NOT SLEEP DURING SLOT RECOVERY
-            if not raw_text and not self.pending_intent:
-                self.silence_count += 1
-                if self.silence_count == 1:
-                    print("Rudra > I'm listening.")
-                elif self.silence_count >= 2:
-                    print("Rudra > Going to sleep.")
-                    self.state = IDLE
-                continue
+        if not raw_text and not self.pending_intent:
+            return
 
-            self.silence_count = 0
+        validation = self.input_validator.validate(raw_text)
+        if not validation["valid"]:
+            print("Rudra > Please repeat.")
+            return
 
-            validation = self.input_validator.validate(raw_text)
-            if not validation["valid"]:
-                print("Rudra > Please repeat.")
-                continue
+        clean_text = validation["clean_text"]
+        tokens = normalize_text(clean_text)
 
-            clean_text = validation["clean_text"]
-            tokens = normalize_text(clean_text)
+        # 🔴 ABSOLUTE PRIORITY — INTERRUPT
+        if self._detect_embedded_interrupt(tokens):
+            self._handle_global_interrupt("embedded")
+            return
 
-            # 🔴 DAY 18.2 — EMBEDDED INTERRUPT (ABSOLUTE PRIORITY)
-            if self._detect_embedded_interrupt(tokens):
-                self._handle_global_interrupt("embedded")
-                continue
+        # ================= SLOT RECOVERY =================
+        if self.pending_intent:
+            if GLOBAL_INTERRUPT.is_triggered():
+                self._handle_global_interrupt("slot")
+                return
 
-            # ======================================
-            # SLOT RECOVERY MODE
-            # ======================================
-            if self.pending_intent:
-                if GLOBAL_INTERRUPT.is_triggered():
-                    self._handle_global_interrupt("slot")
-                    continue
+            new_args = self.action_executor.fill_missing(
+                self.pending_intent, clean_text, self.missing_args
+            )
+            self.pending_args.update(new_args)
 
-                new_args = self.action_executor.fill_missing(
-                    self.pending_intent, clean_text, self.missing_args
-                )
-                self.pending_args.update(new_args)
+            still_missing = [
+                k for k in self.missing_args if not self.pending_args.get(k)
+            ]
 
-                still_missing = [
-                    k for k in self.missing_args if not self.pending_args.get(k)
-                ]
+            if still_missing:
+                print(f"Rudra > Please provide {', '.join(still_missing)}.")
+                self.missing_args = still_missing
+                return
 
-                if still_missing:
-                    print(f"Rudra > Please provide {', '.join(still_missing)}.")
-                    self.missing_args = still_missing
-                    continue
-
-                result = self.action_executor.execute(
-                    self.pending_intent,
-                    clean_text,
-                    confidence=0.85,
-                    replay_args=self.pending_args,
-                )
-
-                print(f"Rudra > {result.get('message')}")
-
-                self.ctx.update(
-                    self.pending_intent.value,
-                    text=clean_text,
-                    entities=result.get("args"),
-                )
-
-                self.pending_intent = None
-                self.pending_args = {}
-                self.missing_args = []
-                continue
-
-            # ======================================
-            # NORMAL FLOW
-            # ======================================
-            scores = score_intents(tokens)
-            intent, confidence = pick_best_intent(scores, tokens)
-            confidence = refine_confidence(
-                confidence, tokens, intent.value, self.ctx.last_intent
+            self.action_executor.execute(
+                self.pending_intent,
+                clean_text,
+                confidence=0.85,
+                replay_args=self.pending_args,
             )
 
-            if confidence < INTENT_CONFIDENCE_THRESHOLD or intent == Intent.UNKNOWN:
-                print(f"Rudra > {self.next_clarification()}")
-                continue
+            self.pending_intent = None
+            self.pending_args = {}
+            self.missing_args = []
+            return
 
-            missing = self.action_executor.get_missing_args(intent, clean_text)
-            if missing:
-                self.pending_intent = intent
-                self.pending_args = {}
-                self.missing_args = missing
-                print(f"Rudra > Please provide {', '.join(missing)}.")
-                continue
+        # ================= NORMAL FLOW =================
+        scores = score_intents(tokens)
+        intent, confidence = pick_best_intent(scores, tokens)
+        confidence = refine_confidence(
+            confidence, tokens, intent.value, self.ctx.last_intent
+        )
 
-            save_message("user", clean_text, intent.value)
+        if confidence < INTENT_CONFIDENCE_THRESHOLD or intent == Intent.UNKNOWN:
+            print(f"Rudra > {self.next_clarification()}")
+            return
 
-            if intent == Intent.EXIT:
-                print("Rudra > Goodbye!")
-                break
+        missing = self.action_executor.get_missing_args(intent, clean_text)
+        if missing:
+            self.pending_intent = intent
+            self.missing_args = missing
+            print(f"Rudra > Please provide {', '.join(missing)}.")
+            return
 
-            if intent in (Intent.GREETING, Intent.HELP):
-                response = basic_handle(intent, clean_text)
-            else:
-                result = self.action_executor.execute(intent, clean_text, confidence)
-                response = result.get("message", "Done.")
+        save_message("user", clean_text, intent.value)
 
-            print(f"Rudra > {response}")
-            save_message("assistant", response, intent.value)
-            self.ctx.update(intent.value)
+        if intent == Intent.EXIT:
+            print("Rudra > Goodbye!")
+            self.running = False
+            return
+
+        if intent in (Intent.GREETING, Intent.HELP):
+            response = basic_handle(intent, clean_text)
+        else:
+            result = self.action_executor.execute(intent, clean_text, confidence)
+            response = result.get("message", "Done.")
+
+        print(f"Rudra > {response}")
+        save_message("assistant", response, intent.value)
+        self.ctx.update(intent.value)
+
+    # =================================================
+    # PRODUCTION LOOP
+    # =================================================
+    def run(self):
+        logger.info("Day 18.3 — Unified Interrupt Control enabled")
+
+        while self.running:
+            self._cycle()
+
+    # =================================================
+    # DAY 18.3 — TEST SAFE SINGLE CYCLE
+    # =================================================
+    def run_once(self):
+        """
+        Execute exactly ONE assistant cycle.
+        Used for deterministic testing.
+        """
+        self._cycle()

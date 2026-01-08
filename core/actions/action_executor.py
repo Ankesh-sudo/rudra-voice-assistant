@@ -1,7 +1,8 @@
 """
 Action Executor
 Day 17.6 — Confidence Gating + Follow-up + Slot Recovery (FINAL)
-Day 18.1 — Global Interrupt Guard (ADDED)
+Day 18.1 — Global Interrupt Guard (READ-ONLY)
+Day 18.3 — Safe Cancel Hook (ADDED)
 """
 
 import logging
@@ -12,8 +13,7 @@ from core.nlp.intent import Intent
 from core.nlp.argument_extractor import ArgumentExtractor
 from core.skills.system_actions import SystemActions
 from core.context.follow_up import FollowUpContext, INTENT_ENTITY_WHITELIST
-
-from core.control.global_interrupt import GLOBAL_INTERRUPT  # 🔴 Day 18.1
+from core.control.global_interrupt import GLOBAL_INTERRUPT  # read-only
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,16 @@ class ActionExecutor:
         self.min_reference_confidence = 0.5
 
         self.action_history: List[Dict[str, Any]] = []
+
+    # =====================================================
+    # DAY 18.3 — SAFE CANCEL HOOK
+    # =====================================================
+    def cancel_pending(self):
+        """
+        Cancel follow-up context safely.
+        Memory is preserved.
+        """
+        self.follow_up_context.clear_context()
 
     # =====================================================
     # SLOT INSPECTION
@@ -73,7 +83,6 @@ class ActionExecutor:
             followup_text, intent.value
         ) or {}
 
-        # Single-slot recovery → full text maps to slot
         if missing and len(missing) == 1 and not args.get(missing[0]):
             args[missing[0]] = followup_text.strip()
 
@@ -90,11 +99,9 @@ class ActionExecutor:
         replay_args: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
 
-        # 🔴 HARD STOP — GLOBAL INTERRUPT
+        # 🔴 HARD GUARD — execution stops, but does NOT clear interrupt
         if GLOBAL_INTERRUPT.is_triggered():
-            logger.warning("Execution aborted due to global interrupt")
-            GLOBAL_INTERRUPT.clear()
-            self.follow_up_context.clear_context()
+            logger.warning("Execution skipped due to global interrupt")
             return {
                 "success": False,
                 "message": "Action cancelled.",
@@ -104,7 +111,6 @@ class ActionExecutor:
 
         logger.info("Intent=%s confidence=%.2f", intent.value, confidence)
 
-        # ---------------- UNKNOWN ----------------
         if intent == Intent.UNKNOWN:
             self.follow_up_context.clear_context()
             return {
@@ -114,7 +120,7 @@ class ActionExecutor:
                 "executed": False,
             }
 
-        # ---------------- PRONOUN GUARD (GLOBAL) ----------------
+        # ---------------- PRONOUN GUARD ----------------
         if re.search(r"\b(it|that|there|again|same|them)\b", text.lower()):
             last = (
                 self.follow_up_context.contexts[-1]
@@ -160,8 +166,6 @@ class ActionExecutor:
         # ---------------- SLOT CHECK ----------------
         for slot in REQUIRED_ARGS.get(intent.value, []):
             if GLOBAL_INTERRUPT.is_triggered():
-                logger.warning("Interrupted during slot checking")
-                GLOBAL_INTERRUPT.clear()
                 return {
                     "success": False,
                     "message": "Action cancelled.",
@@ -179,16 +183,6 @@ class ActionExecutor:
                 }
 
         # ---------------- EXECUTE ACTION ----------------
-        if GLOBAL_INTERRUPT.is_triggered():
-            logger.warning("Interrupted before action execution")
-            GLOBAL_INTERRUPT.clear()
-            return {
-                "success": False,
-                "message": "Action cancelled.",
-                "confidence": confidence,
-                "executed": False,
-            }
-
         result = self._execute_action_by_name(intent.value, args)
 
         if result.get("success"):
@@ -212,7 +206,7 @@ class ActionExecutor:
         }
 
     # =====================================================
-    # FOLLOW-UP HANDLER (INTENT-ISOLATED)
+    # FOLLOW-UP HANDLER
     # =====================================================
     def _try_follow_up(
         self, intent: Intent, text: str, confidence: float
@@ -254,14 +248,6 @@ class ActionExecutor:
             intent.value, context.get("entities", {})
         )
 
-        if GLOBAL_INTERRUPT.is_triggered():
-            return {
-                "success": False,
-                "message": "Action cancelled.",
-                "confidence": confidence,
-                "executed": False,
-            }
-
         result = self._execute_action_by_name(intent.value, args)
 
         return {
@@ -278,10 +264,10 @@ class ActionExecutor:
     # ACTION DISPATCH
     # =====================================================
     def _execute_action_by_name(self, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        sa = self.system_actions
-
         if GLOBAL_INTERRUPT.is_triggered():
             return {"success": False, "message": "Action cancelled."}
+
+        sa = self.system_actions
 
         if action == "open_browser":
             return sa.open_browser(args.get("url"), args.get("target"))
