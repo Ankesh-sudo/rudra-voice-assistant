@@ -4,10 +4,12 @@ load_dotenv()
 from loguru import logger
 from core.assistant import Assistant
 
+
 def main():
-    logger.info("Starting Rudra Assistant (Day 1 – Fresh Start)")
+    logger.info("Starting Rudra Assistant (Day 18.1 – Global Interrupt Enabled)")
     assistant = Assistant()
     assistant.run()
+
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 """
 Action Executor
 Day 17.6 — Confidence Gating + Follow-up + Slot Recovery (FINAL)
+Day 18.1 — Global Interrupt Guard (ADDED)
 """
 
 import logging
@@ -11,6 +12,8 @@ from core.nlp.intent import Intent
 from core.nlp.argument_extractor import ArgumentExtractor
 from core.skills.system_actions import SystemActions
 from core.context.follow_up import FollowUpContext, INTENT_ENTITY_WHITELIST
+
+from core.control.global_interrupt import GLOBAL_INTERRUPT  # 🔴 Day 18.1
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,9 @@ class ActionExecutor:
     # SLOT INSPECTION
     # =====================================================
     def get_missing_args(self, intent: Intent, text: str) -> List[str]:
+        if GLOBAL_INTERRUPT.is_triggered():
+            return []
+
         required = REQUIRED_ARGS.get(intent.value, [])
         if not required:
             return []
@@ -59,6 +65,9 @@ class ActionExecutor:
         followup_text: str,
         missing: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+
+        if GLOBAL_INTERRUPT.is_triggered():
+            return {}
 
         args = self.argument_extractor.extract_for_intent(
             followup_text, intent.value
@@ -80,6 +89,18 @@ class ActionExecutor:
         confidence: float,
         replay_args: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+
+        # 🔴 HARD STOP — GLOBAL INTERRUPT
+        if GLOBAL_INTERRUPT.is_triggered():
+            logger.warning("Execution aborted due to global interrupt")
+            GLOBAL_INTERRUPT.clear()
+            self.follow_up_context.clear_context()
+            return {
+                "success": False,
+                "message": "Action cancelled.",
+                "confidence": confidence,
+                "executed": False,
+            }
 
         logger.info("Intent=%s confidence=%.2f", intent.value, confidence)
 
@@ -109,7 +130,6 @@ class ActionExecutor:
                     "executed": False,
                 }
 
-            # 🔒 FINAL RULE — NO CROSS-INTENT CONTEXT
             if last.get("action") != intent.value:
                 return {
                     "success": False,
@@ -139,6 +159,16 @@ class ActionExecutor:
 
         # ---------------- SLOT CHECK ----------------
         for slot in REQUIRED_ARGS.get(intent.value, []):
+            if GLOBAL_INTERRUPT.is_triggered():
+                logger.warning("Interrupted during slot checking")
+                GLOBAL_INTERRUPT.clear()
+                return {
+                    "success": False,
+                    "message": "Action cancelled.",
+                    "confidence": confidence,
+                    "executed": False,
+                }
+
             if not args.get(slot):
                 self.follow_up_context.clear_context()
                 return {
@@ -148,7 +178,17 @@ class ActionExecutor:
                     "executed": False,
                 }
 
-        # ---------------- EXECUTE ----------------
+        # ---------------- EXECUTE ACTION ----------------
+        if GLOBAL_INTERRUPT.is_triggered():
+            logger.warning("Interrupted before action execution")
+            GLOBAL_INTERRUPT.clear()
+            return {
+                "success": False,
+                "message": "Action cancelled.",
+                "confidence": confidence,
+                "executed": False,
+            }
+
         result = self._execute_action_by_name(intent.value, args)
 
         if result.get("success"):
@@ -178,6 +218,14 @@ class ActionExecutor:
         self, intent: Intent, text: str, confidence: float
     ) -> Optional[Dict[str, Any]]:
 
+        if GLOBAL_INTERRUPT.is_triggered():
+            return {
+                "success": False,
+                "message": "Action cancelled.",
+                "confidence": confidence,
+                "executed": False,
+            }
+
         if not re.search(r"\b(it|that|there|again|same|them)\b", text.lower()):
             return None
 
@@ -206,6 +254,14 @@ class ActionExecutor:
             intent.value, context.get("entities", {})
         )
 
+        if GLOBAL_INTERRUPT.is_triggered():
+            return {
+                "success": False,
+                "message": "Action cancelled.",
+                "confidence": confidence,
+                "executed": False,
+            }
+
         result = self._execute_action_by_name(intent.value, args)
 
         return {
@@ -223,6 +279,9 @@ class ActionExecutor:
     # =====================================================
     def _execute_action_by_name(self, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
         sa = self.system_actions
+
+        if GLOBAL_INTERRUPT.is_triggered():
+            return {"success": False, "message": "Action cancelled."}
 
         if action == "open_browser":
             return sa.open_browser(args.get("url"), args.get("target"))

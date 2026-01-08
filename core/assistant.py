@@ -12,6 +12,9 @@ from core.intelligence.intent_scorer import score_intents, pick_best_intent
 from core.intelligence.confidence_refiner import refine_confidence
 from core.actions.action_executor import ActionExecutor
 
+from core.control.global_interrupt import GLOBAL_INTERRUPT
+from core.control.interrupt_words import INTERRUPT_KEYWORDS
+
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
 
@@ -47,11 +50,37 @@ class Assistant:
         self.clarify_index = (self.clarify_index + 1) % len(CLARIFICATION_MESSAGES)
         return msg
 
+    def _is_global_interrupt(self, text: str) -> bool:
+        if not text:
+            return False
+        return text.lower().strip() in INTERRUPT_KEYWORDS
+
+    def _handle_global_interrupt(self, text: str):
+        logger.warning(f"Global interrupt triggered by: {text}")
+
+        GLOBAL_INTERRUPT.trigger()
+
+        # Reset ONLY execution-related state
+        self.pending_intent = None
+        self.pending_args = {}
+        self.missing_args = []
+
+        self.input.reset_execution_state()
+
+        GLOBAL_INTERRUPT.clear()
+
+        print("Rudra > Okay, stopped.")
+
     def run(self):
-        logger.info("Day 17.6 — Slot recovery enabled")
+        logger.info("Day 18.1 — Global Interrupts enabled")
 
         while self.running:
             raw_text = self.input.read()
+
+            # 🔴 GLOBAL INTERRUPT — ABSOLUTE PRIORITY
+            if self._is_global_interrupt(raw_text):
+                self._handle_global_interrupt(raw_text)
+                continue
 
             # ❌ DO NOT SLEEP DURING SLOT RECOVERY
             if not raw_text and not self.pending_intent:
@@ -77,6 +106,11 @@ class Assistant:
             # SLOT RECOVERY MODE
             # ======================================
             if self.pending_intent:
+                # Abort slot recovery if interrupt occurred mid-loop
+                if GLOBAL_INTERRUPT.is_triggered():
+                    self._handle_global_interrupt("interrupt")
+                    continue
+
                 new_args = self.action_executor.fill_missing(
                     self.pending_intent, clean_text, self.missing_args
                 )

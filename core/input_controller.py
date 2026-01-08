@@ -1,7 +1,9 @@
 import time
 from loguru import logger
+
 from core.speech.google_engine import GoogleSpeechEngine
 from core.speech.wake_word import contains_wake_word
+from core.control.global_interrupt import GLOBAL_INTERRUPT
 
 
 class InputController:
@@ -11,7 +13,21 @@ class InputController:
         self.last_active_time = 0
         self.ACTIVE_TIMEOUT = 45
 
+    def reset_execution_state(self):
+        """
+        Reset ONLY execution-related state.
+        Memory, learning, and context must remain untouched.
+        """
+        logger.warning("Execution state reset due to global interrupt")
+        self.active = False
+        self.last_active_time = 0
+
     def read(self) -> str:
+        # 🔴 Abort immediately if interrupt already active
+        if GLOBAL_INTERRUPT.is_triggered():
+            logger.debug("Input read aborted due to global interrupt")
+            return ""
+
         now = time.time()
 
         # Only ask for ENTER if assistant is sleeping
@@ -20,6 +36,11 @@ class InputController:
 
         text = self.speech.listen_once()
         logger.debug("Raw speech: {}", text)
+
+        # Interrupt may occur during listening
+        if GLOBAL_INTERRUPT.is_triggered():
+            logger.debug("Interrupt triggered after listening")
+            return ""
 
         if not text:
             return ""
