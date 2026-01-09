@@ -13,7 +13,10 @@ from core.actions.action_executor import ActionExecutor
 
 from core.control.global_interrupt import GLOBAL_INTERRUPT
 from core.control.interrupt_words import INTERRUPT_KEYWORDS
-from core.control.interrupt_policy import INTERRUPT_POLICY  # 🆕 Day 18.4
+from core.control.interrupt_policy import INTERRUPT_POLICY  # Day 18.4
+
+# 🆕 Day 19.2
+from core.memory.working_memory import WorkingMemory
 
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
@@ -91,7 +94,6 @@ class Assistant:
         # 🟡 SOFT
         if policy == "SOFT":
             print("Rudra > Do you want me to stop this action?")
-            # Keep pending intent; wait for user confirmation
             return
 
         # 🔴 HARD (default)
@@ -110,9 +112,12 @@ class Assistant:
         GLOBAL_INTERRUPT.clear()
 
     # =================================================
-    # CORE SINGLE CYCLE (run & run_once)
+    # CORE SINGLE CYCLE (Day 19.2)
     # =================================================
     def _cycle(self):
+        # 🆕 Working Memory — per interaction
+        wm = WorkingMemory()
+
         raw_text = self.input.read()
         if not raw_text and not self.pending_intent:
             return
@@ -129,6 +134,7 @@ class Assistant:
         current_intent = self.pending_intent
         if self._detect_embedded_interrupt(tokens):
             self._handle_interrupt("embedded", current_intent)
+            wm.mark_interrupted()
             return
 
         # ================= SLOT RECOVERY =================
@@ -166,6 +172,9 @@ class Assistant:
             confidence, tokens, intent.value, self.ctx.last_intent
         )
 
+        # 🆕 Feed Working Memory
+        wm.set_intent(intent.value, confidence)
+
         if confidence < INTENT_CONFIDENCE_THRESHOLD or intent == Intent.UNKNOWN:
             print(f"Rudra > {self.next_clarification()}")
             return
@@ -198,7 +207,7 @@ class Assistant:
     # PRODUCTION LOOP
     # =================================================
     def run(self):
-        logger.info("Day 18.4 — Intent-Aware Interrupts enabled")
+        logger.info("Day 19.2 — Working Memory enabled")
         while self.running:
             self._cycle()
 
