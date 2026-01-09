@@ -18,8 +18,11 @@ from core.control.interrupt_policy import INTERRUPT_POLICY  # Day 18.4
 # Day 19.2
 from core.memory.working_memory import WorkingMemory
 
-# 🆕 Day 20.1
+# Day 20.1
 from core.memory.context_pack import ContextPackBuilder
+
+# 🆕 Day 20.2
+from core.memory.follow_up_resolver import FollowUpResolver
 
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
@@ -61,10 +64,6 @@ class Assistant:
         return msg
 
     def _get_interrupt_policy(self, intent: Intent | None) -> str:
-        """
-        Resolve interrupt policy for an intent.
-        Default = HARD (safe).
-        """
         if not intent:
             return "HARD"
         return INTERRUPT_POLICY.get(intent, "HARD")
@@ -86,22 +85,16 @@ class Assistant:
     def _handle_interrupt(self, source: str, intent: Intent | None):
         policy = self._get_interrupt_policy(intent)
 
-        logger.warning(
-            f"Interrupt triggered ({source}) | policy={policy}"
-        )
+        logger.warning(f"Interrupt triggered ({source}) | policy={policy}")
 
-        # 🟢 IGNORE
         if policy == "IGNORE":
             return
 
-        # 🟡 SOFT
         if policy == "SOFT":
             print("Rudra > Do you want me to stop this action?")
             return
 
-        # 🔴 HARD (default)
         GLOBAL_INTERRUPT.trigger()
-
         self.action_executor.cancel_pending()
 
         self.pending_intent = None
@@ -109,22 +102,22 @@ class Assistant:
         self.missing_args = []
 
         self.input.reset_execution_state()
-
         print("Rudra > Okay, stopped.")
-
         GLOBAL_INTERRUPT.clear()
 
     # =================================================
-    # CORE SINGLE CYCLE (Day 20.1)
+    # CORE SINGLE CYCLE (Day 20.2)
     # =================================================
     def _cycle(self):
-        # 🆕 Working Memory — per interaction
+        # Working Memory
         wm = WorkingMemory()
 
-        # 🆕 Context Pack — read-only (no usage yet)
+        # Context Pack (read-only)
         context_builder = ContextPackBuilder()
         context_pack = context_builder.build()
-        # NOTE: context_pack intentionally unused (Day 20.1 rule)
+
+        # Follow-up resolver (rule-based)
+        follow_up_resolver = FollowUpResolver()
 
         raw_text = self.input.read()
         if not raw_text and not self.pending_intent:
@@ -138,7 +131,7 @@ class Assistant:
         clean_text = validation["clean_text"]
         tokens = normalize_text(clean_text)
 
-        # 🔴 INTERRUPT (ABSOLUTE PRIORITY)
+        # 🔴 INTERRUPT
         current_intent = self.pending_intent
         if self._detect_embedded_interrupt(tokens):
             self._handle_interrupt("embedded", current_intent)
@@ -180,12 +173,25 @@ class Assistant:
             confidence, tokens, intent.value, self.ctx.last_intent
         )
 
-        # Feed Working Memory
         wm.set_intent(intent.value, confidence)
 
+        # 🆕 Memory-aware ambiguity handling
         if confidence < INTENT_CONFIDENCE_THRESHOLD or intent == Intent.UNKNOWN:
-            print(f"Rudra > {self.next_clarification()}")
-            return
+            resolved = follow_up_resolver.resolve(
+                tokens=tokens,
+                context_pack=context_pack
+            )
+
+            if resolved:
+                try:
+                    intent = Intent(resolved["resolved_intent"])
+                    confidence = 0.7
+                except Exception:
+                    print(f"Rudra > {self.next_clarification()}")
+                    return
+            else:
+                print(f"Rudra > {self.next_clarification()}")
+                return
 
         missing = self.action_executor.get_missing_args(intent, clean_text)
         if missing:
@@ -215,7 +221,7 @@ class Assistant:
     # PRODUCTION LOOP
     # =================================================
     def run(self):
-        logger.info("Day 20.1 — Context Pack enabled (read-only)")
+        logger.info("Day 20.2 — Memory-aware follow-ups enabled")
         while self.running:
             self._cycle()
 
@@ -223,8 +229,4 @@ class Assistant:
     # TEST-SAFE SINGLE CYCLE
     # =================================================
     def run_once(self):
-        """
-        Execute exactly ONE assistant cycle.
-        Used for deterministic testing.
-        """
         self._cycle()
