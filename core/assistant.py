@@ -33,6 +33,9 @@ from core.memory.confidence_adjuster import ConfidenceAdjuster
 # Day 21.1 — Memory entry point (policy-controlled)
 from core.memory.memory_manager import MemoryManager
 
+# Day 21.5 — STM read (READ-ONLY)
+from core.memory.short_term_memory import ShortTermMemory
+
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
 
@@ -66,6 +69,9 @@ class Assistant:
 
         # Day 21.1 — Memory manager (policy enforced internally)
         self.memory_manager = MemoryManager()
+
+        # Day 21.5 — STM (read-only usage)
+        self.stm = ShortTermMemory()
 
     # =================================================
     # UTIL
@@ -118,17 +124,25 @@ class Assistant:
         GLOBAL_INTERRUPT.clear()
 
     # =================================================
-    # CORE SINGLE CYCLE (Day 21.1)
+    # CORE SINGLE CYCLE (Day 21.5)
     # =================================================
     def _cycle(self):
         # Working Memory
         wm = WorkingMemory()
 
-        # Context Pack (read-only)
+        # Context Pack (read-only base)
         context_builder = ContextPackBuilder()
         context_pack = context_builder.build()
 
-        # Memory helpers
+        # Day 21.5 — Attach STM read-only context
+        recent_user_stm = self.stm.fetch_recent(
+            role="user",
+            limit=3,
+            min_confidence=0.70
+        )
+        context_pack["stm_recent"] = recent_user_stm  # consultative only
+
+        # Helpers
         follow_up_resolver = FollowUpResolver()
         slot_merger = SlotPreferenceMerger()
         confidence_adjuster = ConfidenceAdjuster()
@@ -189,7 +203,7 @@ class Assistant:
 
         wm.set_intent(intent.value, confidence)
 
-        # ---- Ambiguity resolution (Day 20.2) ----
+        # ---- Ambiguity resolution (Day 20.2 + STM context) ----
         if confidence < INTENT_CONFIDENCE_THRESHOLD or intent == Intent.UNKNOWN:
             resolved = follow_up_resolver.resolve(
                 tokens=tokens,
@@ -275,7 +289,7 @@ class Assistant:
     # PRODUCTION LOOP
     # =================================================
     def run(self):
-        logger.info("Day 21.1 — MemoryManager wired (policy-controlled)")
+        logger.info("Day 21.5 — STM read-only context integrated")
         while self.running:
             self._cycle()
 
