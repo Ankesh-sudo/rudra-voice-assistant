@@ -27,8 +27,11 @@ from core.memory.follow_up_resolver import FollowUpResolver
 # Day 20.3
 from core.memory.slot_preference_merger import SlotPreferenceMerger
 
-# 🆕 Day 20.4
+# Day 20.4
 from core.memory.confidence_adjuster import ConfidenceAdjuster
+
+# Day 21.1 — Memory entry point (policy-controlled)
+from core.memory.memory_manager import MemoryManager
 
 
 INTENT_CONFIDENCE_THRESHOLD = 0.65
@@ -60,6 +63,9 @@ class Assistant:
         self.missing_args = []
 
         self.clarify_index = 0
+
+        # Day 21.1 — Memory manager (policy enforced internally)
+        self.memory_manager = MemoryManager()
 
     # =================================================
     # UTIL
@@ -112,7 +118,7 @@ class Assistant:
         GLOBAL_INTERRUPT.clear()
 
     # =================================================
-    # CORE SINGLE CYCLE (Day 20.4)
+    # CORE SINGLE CYCLE (Day 21.1)
     # =================================================
     def _cycle(self):
         # Working Memory
@@ -235,6 +241,17 @@ class Assistant:
             print(f"Rudra > Please provide {', '.join(missing)}.")
             return
 
+        # =================================================
+        # Day 21.1 — Controlled Memory Entry (POLICY-SAFE)
+        # =================================================
+        self.memory_manager.consider(
+            role="user",
+            content=clean_text,
+            intent=intent.value,
+            confidence=confidence,
+            content_type="conversation"
+        )
+
         # ------------------------------------------------
 
         save_message("user", clean_text, intent.value)
@@ -258,7 +275,7 @@ class Assistant:
     # PRODUCTION LOOP
     # =================================================
     def run(self):
-        logger.info("Day 20.4 — Memory-informed confidence enabled")
+        logger.info("Day 21.1 — MemoryManager wired (policy-controlled)")
         while self.running:
             self._cycle()
 
