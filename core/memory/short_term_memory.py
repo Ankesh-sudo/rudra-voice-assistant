@@ -6,10 +6,12 @@ Purpose:
 - Limited size
 - Fast recall
 - Automatic decay (TTL)
+- Safe, filtered read access
 """
 
 import time
 from collections import deque
+from typing import Iterable
 
 
 class ShortTermMemory:
@@ -18,6 +20,13 @@ class ShortTermMemory:
     # ===============================
     MAX_ITEMS = 50          # hard cap
     TTL_SECONDS = 300       # 5 minutes
+
+    # ===============================
+    # DAY 21.4 — READ SAFETY LIMITS
+    # ===============================
+    MAX_READ_LIMIT = 10     # absolute cap for reads
+    DEFAULT_READ_LIMIT = 5
+    MIN_READ_CONFIDENCE = 0.70
 
     def __init__(self):
         # deque preserves insertion order (FIFO)
@@ -44,7 +53,7 @@ class ShortTermMemory:
             self._items.popleft()
 
     # -------------------------------
-    # Public API
+    # Public API — WRITE
     # -------------------------------
     def store(self, *, role: str, content: str, intent: str, confidence: float):
         """
@@ -61,15 +70,71 @@ class ShortTermMemory:
         # Enforce limits immediately
         self._cleanup()
 
-    def fetch_recent(self, limit: int = 10):
+    # -------------------------------
+    # Public API — READ (SAFE)
+    # -------------------------------
+    def fetch_recent(
+        self,
+        *,
+        limit: int | None = None,
+        role: str | None = None,
+        intents: Iterable[str] | None = None,
+        min_confidence: float | None = None,
+    ):
         """
-        Fetch most recent STM entries (newest last).
+        Fetch recent STM entries with strict safety rules.
+
+        Rules:
+        - Hard cap on returned items
+        - Optional role filter ("user" / "assistant")
+        - Optional intent filter
+        - Confidence floor enforced
+        - Newest-last ordering
         """
+
         self._cleanup()
-        if limit <= 0:
+
+        # ---------------------------
+        # Resolve and validate limits
+        # ---------------------------
+        if limit is None:
+            limit = self.DEFAULT_READ_LIMIT
+
+        if limit <= 0 or limit > self.MAX_READ_LIMIT:
             return []
 
-        return list(self._items)[-limit:]
+        if min_confidence is None:
+            min_confidence = self.MIN_READ_CONFIDENCE
+
+        # ---------------------------
+        # Start with all items
+        # ---------------------------
+        items = list(self._items)
+
+        # ---------------------------
+        # Role filter
+        # ---------------------------
+        if role is not None:
+            if role not in {"user", "assistant"}:
+                return []
+            items = [x for x in items if x["role"] == role]
+
+        # ---------------------------
+        # Intent filter
+        # ---------------------------
+        if intents is not None:
+            intents = set(intents)
+            items = [x for x in items if x["intent"] in intents]
+
+        # ---------------------------
+        # Confidence filter
+        # ---------------------------
+        items = [x for x in items if x["confidence"] >= min_confidence]
+
+        # ---------------------------
+        # Return newest-last slice
+        # ---------------------------
+        return items[-limit:]
 
     def clear(self):
         """
